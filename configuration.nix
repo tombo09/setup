@@ -19,9 +19,15 @@
   # Pick only one of the below networking options.
   #  networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
   networking.networkmanager.enable = true;  # Easiest to use and most distros use this by default.
+  
+  networking.wireless.iwd.enable = true;
+  networking.networkmanager.wifi.backend = "iwd";
+
+  #docker aktivieren
+  virtualisation.docker.enable = true;
 
 
- 
+
 #  networking = {
 #    wireless = {
 #      enable = true;
@@ -248,7 +254,7 @@ IdleActionSec=5s
    mutableUsers = false;
    users.tom = {
      isNormalUser = true;
-     extraGroups = [ "wheel" "networkmanager" ]; # Enables ‘sudo’ for the user.
+     extraGroups = [ "wheel" "networkmanager" "docker" ]; # Enables ‘sudo’ for the user.
      hashedPassword = "$6$13/UxgqtVvIrUpnW$dd4GyMsqHhWmB26YMtlKnWDmNQecwTy2rZVwFKwVZ.7G78kX7Yg2HIOdIK3RmoJIKjCHwD8Fnr93Oj.lZswjY1";
      packages = with pkgs; [
        firefox
