@@ -26,7 +26,7 @@
   #docker aktivieren
   virtualisation.docker.enable = true;
 
-
+  services.fwupd.enable = true;
 
 #  networking = {
 #    wireless = {
