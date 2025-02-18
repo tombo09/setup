@@ -537,6 +537,9 @@ ibmI1qEQL8Xfetag4dYIY5Hji+e7XO8XxE2JE6B+m4oIe0YOljc=
 
   services.polybar = {
 enable = true;
+    package = pkgs.polybar.override {
+      pulseSupport = true;  # Enable PulseAudio support
+    };
 
 script = ''
 #!/usr/bin/env bash
