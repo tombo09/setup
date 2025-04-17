@@ -141,10 +141,10 @@ ${pkgs.coreutils}/bin/chmod 644 /home/tom/setup/configuration.nix
   hardware.pulseaudio.enable = true;
   nixpkgs.config.pulseaudio = true;
   # OR
-  # services.pipewire = {
-  #  enable = true;
+   services.pipewire = {
+    enable = false;
   #   pulse.enable = true;
-  # };
+   };
  
 
   hardware.bluetooth.enable = true; # enables support for Bluetooth
