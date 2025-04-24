@@ -627,7 +627,7 @@ font-4 = "Font Awesome 6 Brands:style=Regular:pixelsize=14;1"
 
 modules-left = xworkspaces menu-apps
 modules-center = date
-modules-right = pulseaudio network memory battery
+modules-right = internet pulseaudio network memory battery
 cursor-click = pointer
 cursor-scroll = ns-resize
 
@@ -638,6 +638,22 @@ enable-ipc = true
 ; wm-restack = i3
 
 ; override-redirect = true
+
+
+;
+;
+
+[module/internet]
+type = custom/script
+exec = /home/tom/polybar-position-exe.sh
+interval = 1 
+label = %output%
+click-left = bash -c 'kitty sh -ic "sudo sh -c \"if [ -f /tmp/option1_status ]; then rm /tmp/option1_status; else echo on > /tmp/option1_status; fi\""'
+click-right = echo -e "ctrl + b + 1\tLong All limit_loop\nctrl + s + 1\tShort All limit_loop\nalt + b + 1\tLong All market\nalt + s + 1\tShort All market\nalt + c + s\tClose Short All market\nalt + c + b\tClose Long All market\nctrl + c + s + 1\tClose Short 0.005 limit_loop\nctrl + c + b + 1\tClose Long 0.005 limit_loop" | rofi -dmenu -p "Shortcuts"
+;
+;
+
+
 
 [module/systray]
 type = internal/tray
@@ -1678,7 +1694,6 @@ bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
   ];
 
 
-
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
@@ -1727,9 +1742,11 @@ bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
      git-crypt
      nodejs_22
      syncthing
-
+     rofi
+     
      qt5Full
      python310Packages.pyqt5
+     sxhkd
 
 
   (vscode-with-extensions.override {
