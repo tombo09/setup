@@ -627,7 +627,7 @@ font-4 = "Font Awesome 6 Brands:style=Regular:pixelsize=14;1"
 
 modules-left = xworkspaces menu-apps
 modules-center = date
-modules-right = internet pulseaudio network memory battery
+modules-right = scalp pulseaudio network memory battery
 cursor-click = pointer
 cursor-scroll = ns-resize
 
@@ -643,13 +643,13 @@ enable-ipc = true
 ;
 ;
 
-[module/internet]
+[module/scalp]
 type = custom/script
-exec = /home/tom/polybar-position-exe.sh
+exec = polybar-position-exe.sh
 interval = 1 
 label = %output%
 click-left = bash -c 'kitty sh -ic "sudo sh -c \"if [ -f /tmp/option1_status ]; then rm /tmp/option1_status; else echo on > /tmp/option1_status; fi\""'
-click-right = echo -e "ctrl + b + 1\tLong All limit_loop\nctrl + s + 1\tShort All limit_loop\nalt + b + 1\tLong All market\nalt + s + 1\tShort All market\nalt + c + s\tClose Short All market\nalt + c + b\tClose Long All market\nctrl + c + s + 1\tClose Short 0.005 limit_loop\nctrl + c + b + 1\tClose Long 0.005 limit_loop" | rofi -dmenu -p "Shortcuts"
+click-right = echo -e "Ctrl + Alt + b\tLong limit_loop\nCtrl + Alt + s\tShort limit_loop\nAlt + Shift + b\tLong market\nAlt + Shift + s\tShort market\nAlt + Shift + Ctrl + s\tClose Short All market\nAlt + Shift + Ctrl + b\tClose Long All market\nShift + Ctrl + Tab + s\tClose Short 0.005 market\nCtrl + Shift + Tab + b \tClose Long 0.005 market\nCtrl + Tab + s\tClose Short All limit_loop\nCtrl + Tab + b\tClose Long All limit_loop" | rofi -dmenu -p "Shortcuts"
 ;
 ;
 
@@ -1743,10 +1743,13 @@ bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
      nodejs_22
      syncthing
      rofi
-     
      qt5Full
      python310Packages.pyqt5
-     sxhkd
+     xbindkeys
+(python3.withPackages (ps: with ps; [
+      requests
+      numpy
+    ]))
 
 
   (vscode-with-extensions.override {
@@ -2694,6 +2697,98 @@ else
 fi
  '')
 
+(pkgs.writeShellScriptBin "shortcut-execute.sh" ''
+#!/usr/bin/env bash
+
+set -e
+
+# Funktion: Anzeige der Usage
+usage() {
+  cat <<EOF
+Usage: $0 -a <action> [-l <leverage>] (-m <amount|All> | -g <margin|All>) -e <executionType>
+
+  -a  Aktion (z.B. openLong, closeShort)
+  -l  Hebel (z.B. 11) nur erforderlich bei open-Aktionen
+  -m  Menge in BTC (z.B. 0.001 oder All)
+  -g  Margin in USDT (z.B. 20 oder All)
+  -e  Ausführungstyp (z.B. limit_loop, market)
+
+Bei closeLong/closeShort ist -l optional. Du musst genau eines von -m oder -g angeben; als Wert kann auch "All" stehen.
+EOF
+  exit 1
+}
+
+# Parameter einlesen
+action=""
+leverage=""
+amount=""
+margin=""
+exec_type=""
+while getopts "a:l:m:g:e:" opt; do
+  case "$opt" in
+    a) ACTION="$OPTARG" ;; 
+    l) LEVERAGE="$OPTARG" ;; 
+    m) AMOUNT="$OPTARG" ;; 
+    g) MARGIN="$OPTARG" ;; 
+    e) EXEC_TYPE="$OPTARG" ;; 
+    *) usage ;; 
+  esac
+done
+
+# Pflicht-Checks
+# 1) Aktion und ExecutionType müssen gesetzt sein
+if [ -z "$ACTION" ] || [ -z "$EXEC_TYPE" ]; then
+  usage
+fi
+# 2) Genau eines von amount/margin
+if { [ -n "$AMOUNT" ] && [ -n "$MARGIN" ]; } || { [ -z "$AMOUNT" ] && [ -z "$MARGIN" ]; }; then
+  usage
+fi
+# 3) Leverage nur bei non-close-Aktionen erforderlich
+if ! [[ "$ACTION" =~ ^close(Long|Short)$ ]] && [ -z "$LEVERAGE" ]; then
+  usage
+fi
+
+# Fixed values
+PASSPHRASE="DmwjmMjLbkRo6Uz9wntqYvIYcLu"
+TICKER="BTCUSD"
+URL="https://tombo09.com/webhook/strategysix"
+
+# JSON-Body dynamisch aufbauen
+BODY="{\"passphrase\":\"''${PASSPHRASE}\",\"ticker\":\"''${TICKER}\",\"action\":\"''${ACTION}\""
+
+# Leverage nur mitschicken, falls gesetzt
+if [ -n "$LEVERAGE" ]; then
+  BODY+=",\"leverage\":''${LEVERAGE}"
+fi
+
+# amount oder margin
+if [ -n "$AMOUNT" ]; then
+  if [ "$AMOUNT" = "All" ]; then
+    BODY+=",\"amount\":\"All\""
+  else
+    BODY+=",\"amount\":''${AMOUNT}"
+  fi
+else
+  if [ "$MARGIN" = "All" ]; then
+    BODY+=",\"margin\":\"All\""
+  else
+    BODY+=",\"margin\":''${MARGIN}"
+  fi
+fi
+
+# ExecutionType
+BODY+=",\"executionType\":\"''${EXEC_TYPE}\"}"
+
+# Curl ausführen
+curl -X POST "$URL" \
+     -H "Content-Type: application/json" \
+     -d "$BODY"
+
+'')
+
+
+
 (pkgs.writeShellScriptBin "update-system.sh" ''
 #!/usr/bin/env bash
 # Datum des letzten Ausführens: 15.08.2024
@@ -3207,6 +3302,239 @@ exit
   '')
 
 
+
+
+(let
+
+  pkgs = import <nixpkgs> {};
+
+  myPython = pkgs.python3.withPackages (ps: with ps; [
+    requests
+  ]);
+  pythonScript = pkgs.writeTextFile {
+    name = "polybar-position.py";
+    text = ''
+import os
+import subprocess
+import time
+import json
+import hmac
+import hashlib
+import base64
+import requests
+
+
+# ——— Pfade für sxhkd & Statusfiles ———
+sxhkdrc_path   = "/home/tom/.xbindkeysrc"
+option_file    = "/tmp/option1_status"
+state_file    = "/tmp/position_state.json"
+
+API_KEY ='bg_c621d26cc7cb34436f79019f3de8a036'
+API_SECRET= 'a7dbc3236dc93861e9eb5ad9a48e34284be53df5f4c530a51b26765f64ce8dd1'
+API_PASSPHRASE = 'rCkX1LCNyxVDvW1A2hQHIyt9Yrmp'
+
+
+
+# ——— Endpunkte ———
+BASE_URL          = "https://api.bitget.com"
+ALL_POS_ENDPOINT  = "/api/v2/mix/position/all-position"
+HIST_POS_ENDPOINT = "/api/v2/mix/position/history-position"
+
+def sign_request(method: str, endpoint: str, query: str = "", body: str = "") -> dict:
+    ts      = str(int(time.time() * 1000))
+    message = ts + method + endpoint + query + body
+    sig     = base64.b64encode(
+        hmac.new(API_SECRET.encode(), message.encode(), hashlib.sha256).digest()
+    ).decode()
+    return {
+        "ACCESS-KEY":        API_KEY,
+        "ACCESS-SIGN":       sig,
+        "ACCESS-TIMESTAMP":  ts,
+        "ACCESS-PASSPHRASE": API_PASSPHRASE,
+        "Content-Type":      "application/json",
+    }
+
+def fetch_current_positions():
+    """
+    GET /api/v2/mix/position/all-position?productType=USDT-FUTURES&marginCoin=USDT
+    Liefert Dicts mit
+      - initialMargin (float)
+      - unrealizedPnl  (float, aus Marktpreis)
+      - percentage     (float)
+      - side           ("LONG"/"SHORT")
+      - entryPrice     (float)
+    """
+    query = "?productType=USDT-FUTURES&marginCoin=USDT"
+    headers = sign_request("GET", ALL_POS_ENDPOINT, query)
+    data = requests.get(BASE_URL + ALL_POS_ENDPOINT + query, headers=headers).json().get("data", [])
+    out = []
+    for pos in data:
+        init = float(pos.get("marginSize", 0))
+        pnl  = float(pos.get("unrealizedPL", 0))
+        pct  = float(pos.get("percentage", 0))
+        side = pos.get("holdSide", "").upper()
+        entry= float(pos.get("openPriceAvg", 0))
+        if init > 0:
+            out.append({
+                "initialMargin": init,
+                "unrealizedPnl": pnl,
+                "percentage":    pct,
+                "side":          side,
+                "entryPrice":    entry,
+            })
+    return out
+
+def fetch_history_positions():
+    """
+    Holt alle geschlossenen Positionen der letzten 3 Monate
+    """
+    query = "?productType=USDT-FUTURES"
+    headers = sign_request("GET", HIST_POS_ENDPOINT, query)
+    data = requests.get(BASE_URL + HIST_POS_ENDPOINT + query, headers=headers).json()
+    return data.get("data", {}).get("list", [])
+
+def compute_last_net(prev_size: float):
+    """
+    Nimmt den ERSTEN Eintrag aus der History-API (history[0])
+    und liefert (netProfit, netPct) zurück.
+    """
+    history = fetch_history_positions()
+    if history:
+        first = history[0]
+        net  = float(first.get("netProfit", 0))
+        pct  = (net / prev_size * 100) if prev_size > 0 else 0.0
+        return net, pct
+    return 0.0, 0.0
+
+def create_sxhkd_config():
+    with open(sxhkdrc_path, "w") as f:
+        f.write("""
+"shortcut-execute.sh -a openLong -l 30 -g 2 -e limit_loop"
+  Control + Alt + b
+
+"shortcut-execute.sh -a openShort -l 30 -g 2 -e limit_loop"
+  Control + Alt + s
+
+"shortcut-execute.sh -a openLong -l 30 -g 2 -e market"
+  Alt + Shift + b
+
+"shortcut-execute.sh -a openShort -l 30 -g 2 -e market"
+  Alt + Shift + s
+
+"shortcut-execute.sh -a closeLong -g All -e market"
+  Shift + Control + Alt + b
+
+"shortcut-execute.sh -a closeShort -g All -e market"
+  Shift + Control + Alt + s
+
+"shortcut-execute.sh -a closeLong -g 2 -e market"
+  Shift + Control + Tab + b
+
+"shortcut-execute.sh -a closeShort -g 2 -e market"
+  Shift + Control + Tab + s 
+
+"shortcut-execute.sh -a closeLong -g All -e limit_loop"
+  Control + Tab + b
+
+"shortcut-execute.sh -a closeShort -g All -e limit_loop"
+  Control + Tab + s
+
+""")
+
+def start_sxhkd():
+    if subprocess.run(["pgrep", "sxhkd"], capture_output=True).returncode != 0:
+        subprocess.Popen(
+            ["sxhkd", "-c", sxhkdrc_path],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+
+def stop_sxhkd():
+    subprocess.run(["killall", "sxhkd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def check_option_status():
+    return os.path.exists(option_file) and open(option_file).read().strip() == "on"
+
+def load_state():
+    if os.path.exists(state_file):
+        try:
+            return json.load(open(state_file))
+        except:
+            pass
+    return {"last_size":0.0,"last_pnl":0.0,"last_pct":0.0,"pnl_until":0.0}
+
+def save_state(s):
+    with open(state_file,"w") as f:
+        json.dump(s, f)
+
+def get_positions_data():
+    """
+    Gibt zurück:
+      total_size, total_pnl, detail_str
+    wobei detail_str für jede Position:
+      side entry:… init:… pnl:… roe:…%
+    """
+    lst = fetch_current_positions()
+    total_size = sum(p["initialMargin"] for p in lst)
+    total_pnl  = sum(p["unrealizedPnl"]  for p in lst)
+    parts = []
+    for p in lst:
+        init = p["initialMargin"]
+        pnl  = p["unrealizedPnl"]
+        roe  = (pnl / init * 100) if init > 0 else 0.0
+        parts.append(
+            f"{p['side']} Entry:{p['entryPrice']:.1f} "
+            f"Marge:{init:.1f} Pnl:{pnl:.2f} Roe:{roe:.3f}%"
+        )
+    return total_size, total_pnl, " | ".join(parts)
+
+def get_polybar_output():
+    state = load_state()
+    now   = time.time()
+    prev_size, prev_pnl, prev_pct = state["last_size"], state["last_pnl"], state["last_pct"]
+    curr_size, curr_pnl, details   = get_positions_data()
+
+    # Schließ-Event: >0 → 0
+    if curr_size == 0.0 and prev_size > 0.0:
+        net, pct = compute_last_net(prev_size)
+        state["last_pnl"]  = net
+        state["last_pct"]  = pct
+        state["pnl_until"] = now + 4.0
+    else:
+        if now > state.get("pnl_until",0):
+            state["last_pnl"] = curr_pnl
+            state["last_pct"] = (curr_pnl/curr_size*100) if curr_size>0 else prev_pct
+
+    state["last_size"] = curr_size
+    save_state(state)
+
+    # 4s Fenster: Net PnL & %
+    if now < state.get("pnl_until",0):
+        return f"Pnl:{state['last_pnl']:.2f} ({state['last_pct']:.3f}%)"
+
+    # Normalmodus: on/off + Details
+    base = "on" if check_option_status() else "off"
+    return f"{base} | {details}" if details else base
+
+def main():
+    create_sxhkd_config()
+    if check_option_status():
+        start_sxhkd()
+    else:
+        stop_sxhkd()
+    print(get_polybar_output())
+
+if __name__ == "__main__":
+    main()
+
+   '';
+  };
+in
+pkgs.writeShellScriptBin "polybar-position-exe.sh" ''
+#!/usr/bin/env bash
+${myPython}/bin/python ${pythonScript}
+
+''
+)
 
 
 (let
