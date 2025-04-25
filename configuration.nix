@@ -3324,16 +3324,14 @@ import base64
 import requests
 
 
-# ——— Pfade für sxhkd & Statusfiles ———
-sxhkdrc_path   = "/home/tom/.xbindkeysrc"
-option_file    = "/tmp/option1_status"
-state_file    = "/tmp/position_state.json"
+# ——— Pfade für xbindkeys & Statusfiles ———
+bindxkeys_path   = "/home/tom/.xbindkeysrc"
+option_file      = "/tmp/option1_status"
+state_file       = "/tmp/position_state.json"
 
 API_KEY ='bg_c621d26cc7cb34436f79019f3de8a036'
 API_SECRET= 'a7dbc3236dc93861e9eb5ad9a48e34284be53df5f4c530a51b26765f64ce8dd1'
 API_PASSPHRASE = 'rCkX1LCNyxVDvW1A2hQHIyt9Yrmp'
-
-
 
 # ——— Endpunkte ———
 BASE_URL          = "https://api.bitget.com"
@@ -3355,15 +3353,6 @@ def sign_request(method: str, endpoint: str, query: str = "", body: str = "") ->
     }
 
 def fetch_current_positions():
-    """
-    GET /api/v2/mix/position/all-position?productType=USDT-FUTURES&marginCoin=USDT
-    Liefert Dicts mit
-      - initialMargin (float)
-      - unrealizedPnl  (float, aus Marktpreis)
-      - percentage     (float)
-      - side           ("LONG"/"SHORT")
-      - entryPrice     (float)
-    """
     query = "?productType=USDT-FUTURES&marginCoin=USDT"
     headers = sign_request("GET", ALL_POS_ENDPOINT, query)
     data = requests.get(BASE_URL + ALL_POS_ENDPOINT + query, headers=headers).json().get("data", [])
@@ -3385,19 +3374,12 @@ def fetch_current_positions():
     return out
 
 def fetch_history_positions():
-    """
-    Holt alle geschlossenen Positionen der letzten 3 Monate
-    """
     query = "?productType=USDT-FUTURES"
     headers = sign_request("GET", HIST_POS_ENDPOINT, query)
     data = requests.get(BASE_URL + HIST_POS_ENDPOINT + query, headers=headers).json()
     return data.get("data", {}).get("list", [])
 
 def compute_last_net(prev_size: float):
-    """
-    Nimmt den ERSTEN Eintrag aus der History-API (history[0])
-    und liefert (netProfit, netPct) zurück.
-    """
     history = fetch_history_positions()
     if history:
         first = history[0]
@@ -3406,50 +3388,46 @@ def compute_last_net(prev_size: float):
         return net, pct
     return 0.0, 0.0
 
-def create_sxhkd_config():
-    with open(sxhkdrc_path, "w") as f:
+def create_xbindkeys_config():
+    with open(bindxkeys_path, "w") as f:
         f.write("""
 "shortcut-execute.sh -a openLong -l 30 -g 2 -e limit_loop"
-  Control + Alt + b
+  Control+Alt + b
 
 "shortcut-execute.sh -a openShort -l 30 -g 2 -e limit_loop"
-  Control + Alt + s
+  Control+Alt + s
 
 "shortcut-execute.sh -a openLong -l 30 -g 2 -e market"
-  Alt + Shift + b
+  Alt+Shift + b
 
 "shortcut-execute.sh -a openShort -l 30 -g 2 -e market"
-  Alt + Shift + s
+  Alt+Shift + s
 
 "shortcut-execute.sh -a closeLong -g All -e market"
-  Shift + Control + Alt + b
+  Control+Alt+Shift + b
 
 "shortcut-execute.sh -a closeShort -g All -e market"
-  Shift + Control + Alt + s
+  Control+Alt+Shift + s
 
 "shortcut-execute.sh -a closeLong -g 2 -e market"
-  Shift + Control + Tab + b
+  Control+Shift+Tab + b
 
 "shortcut-execute.sh -a closeShort -g 2 -e market"
-  Shift + Control + Tab + s 
+  Control+Shift+Tab + s 
 
 "shortcut-execute.sh -a closeLong -g All -e limit_loop"
-  Control + Tab + b
+  Control+Tab + b
 
 "shortcut-execute.sh -a closeShort -g All -e limit_loop"
-  Control + Tab + s
-
+  Control+Tab + s
 """)
 
-def start_sxhkd():
-    if subprocess.run(["pgrep", "sxhkd"], capture_output=True).returncode != 0:
-        subprocess.Popen(
-            ["sxhkd", "-c", sxhkdrc_path],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
+def start_xbindkeys():
+    if subprocess.run(["pgrep", "xbindkeys"], capture_output=True).returncode != 0:
+        subprocess.Popen(["xbindkeys"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-def stop_sxhkd():
-    subprocess.run(["killall", "sxhkd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def stop_xbindkeys():
+    subprocess.run(["killall", "xbindkeys"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def check_option_status():
     return os.path.exists(option_file) and open(option_file).read().strip() == "on"
@@ -3467,12 +3445,6 @@ def save_state(s):
         json.dump(s, f)
 
 def get_positions_data():
-    """
-    Gibt zurück:
-      total_size, total_pnl, detail_str
-    wobei detail_str für jede Position:
-      side entry:… init:… pnl:… roe:…%
-    """
     lst = fetch_current_positions()
     total_size = sum(p["initialMargin"] for p in lst)
     total_pnl  = sum(p["unrealizedPnl"]  for p in lst)
@@ -3493,7 +3465,6 @@ def get_polybar_output():
     prev_size, prev_pnl, prev_pct = state["last_size"], state["last_pnl"], state["last_pct"]
     curr_size, curr_pnl, details   = get_positions_data()
 
-    # Schließ-Event: >0 → 0
     if curr_size == 0.0 and prev_size > 0.0:
         net, pct = compute_last_net(prev_size)
         state["last_pnl"]  = net
@@ -3507,25 +3478,22 @@ def get_polybar_output():
     state["last_size"] = curr_size
     save_state(state)
 
-    # 4s Fenster: Net PnL & %
     if now < state.get("pnl_until",0):
         return f"Pnl:{state['last_pnl']:.2f} ({state['last_pct']:.3f}%)"
 
-    # Normalmodus: on/off + Details
     base = "on" if check_option_status() else "off"
     return f"{base} | {details}" if details else base
 
 def main():
-    create_sxhkd_config()
+    create_xbindkeys_config()
     if check_option_status():
-        start_sxhkd()
+        start_xbindkeys()
     else:
-        stop_sxhkd()
+        stop_xbindkeys()
     print(get_polybar_output())
 
 if __name__ == "__main__":
     main()
-
    '';
   };
 in
