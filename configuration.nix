@@ -3,13 +3,52 @@
 # https://search.nixos.org/options and in the NixOS manual (`nixos-help`).
 
 { config, lib, pkgs, ... }:
+{
+/*let
+  # 1) Import nixpkgs-unstable so we have replaceVars
+  system = builtins.currentSystem;
+  unstable = import (builtins.fetchTarball {
+    url    = "https://github.com/NixOS/nixpkgs/archive/nixos-unstable.tar.gz";
+    # sha256 = "<pin-the-unstable-commit>";
+  }) { inherit system; };
 
-{  
-  imports =
+  # 2) Fetch agenix source once
+  agenixSrc = builtins.fetchTarball {
+    url    = "https://github.com/ryantm/agenix/archive/main.tar.gz";
+    # sha256 = "<pin-the-agenix-commit>";
+  };
+in
+{
+  # 3) Overlay your stable pkgs with the agenix package built by unstable
+  nixpkgs.overlays = [
+    (final: prev: {
+      agenix = unstable.callPackage "${agenixSrc}/pkgs/agenix.nix" {
+        # Pass in the helper that agenix.nix expects:
+        replaceVars = unstable.replaceVars;
+      };
+    })
+  ];
+*/
+ 
+
+ imports =
     [ # Include the results of the hardware scan.
       /etc/nixos/hardware-configuration.nix
       <home-manager/nixos>
-    ];
+# "${agenixSrc}/modules/age.nix"
+     ];
+/*  age.identityPaths = [
+    "/home/tom/.ssh/id_ed25519_nixos"  # Dein gerade erstellter ed25519-Key
+    # optional weitere, z.B. root:
+    # "/root/.ssh/id_ed25519"
+  ];
+  age.secrets."stripe-api-key" = {
+    file  = /etc/nixos/secrets/stripe-api-key.age;
+    owner = "tom";
+    group = "root";
+    mode  = "600";
+  };
+*/
 
   # Use the systemd-boot EFI boot loader.
   boot.loader.systemd-boot.enable = true;
@@ -339,90 +378,6 @@ done
 
 #  services.fprintd.tod.driver = pkgs.libfprint-2-tod1-goodix;
 
-  environment.etc."at140.nordvpn.com.udp.ovpn".text = ''
-client
-dev tun
-proto udp
-remote 37.19.195.203 1194
-resolv-retry infinite
-remote-random
-nobind
-tun-mtu 1500
-tun-mtu-extra 32
-mssfix 1450
-persist-key
-persist-tun
-ping 15
-ping-restart 0
-ping-timer-rem
-reneg-sec 0
-comp-lzo no
-verify-x509-name CN=at140.nordvpn.com
-
-remote-cert-tls server
-
-auth-user-pass
-verb 3
-pull
-fast-io
-cipher AES-256-CBC
-auth SHA512
-<ca>
------BEGIN CERTIFICATE-----
-MIIFCjCCAvKgAwIBAgIBATANBgkqhkiG9w0BAQ0FADA5MQswCQYDVQQGEwJQQTEQ
-MA4GA1UEChMHTm9yZFZQTjEYMBYGA1UEAxMPTm9yZFZQTiBSb290IENBMB4XDTE2
-MDEwMTAwMDAwMFoXDTM1MTIzMTIzNTk1OVowOTELMAkGA1UEBhMCUEExEDAOBgNV
-BAoTB05vcmRWUE4xGDAWBgNVBAMTD05vcmRWUE4gUm9vdCBDQTCCAiIwDQYJKoZI
-hvcNAQEBBQADggIPADCCAgoCggIBAMkr/BYhyo0F2upsIMXwC6QvkZps3NN2/eQF
-kfQIS1gql0aejsKsEnmY0Kaon8uZCTXPsRH1gQNgg5D2gixdd1mJUvV3dE3y9FJr
-XMoDkXdCGBodvKJyU6lcfEVF6/UxHcbBguZK9UtRHS9eJYm3rpL/5huQMCppX7kU
-eQ8dpCwd3iKITqwd1ZudDqsWaU0vqzC2H55IyaZ/5/TnCk31Q1UP6BksbbuRcwOV
-skEDsm6YoWDnn/IIzGOYnFJRzQH5jTz3j1QBvRIuQuBuvUkfhx1FEwhwZigrcxXu
-MP+QgM54kezgziJUaZcOM2zF3lvrwMvXDMfNeIoJABv9ljw969xQ8czQCU5lMVmA
-37ltv5Ec9U5hZuwk/9QO1Z+d/r6Jx0mlurS8gnCAKJgwa3kyZw6e4FZ8mYL4vpRR
-hPdvRTWCMJkeB4yBHyhxUmTRgJHm6YR3D6hcFAc9cQcTEl/I60tMdz33G6m0O42s
-Qt/+AR3YCY/RusWVBJB/qNS94EtNtj8iaebCQW1jHAhvGmFILVR9lzD0EzWKHkvy
-WEjmUVRgCDd6Ne3eFRNS73gdv/C3l5boYySeu4exkEYVxVRn8DhCxs0MnkMHWFK6
-MyzXCCn+JnWFDYPfDKHvpff/kLDobtPBf+Lbch5wQy9quY27xaj0XwLyjOltpiST
-LWae/Q4vAgMBAAGjHTAbMAwGA1UdEwQFMAMBAf8wCwYDVR0PBAQDAgEGMA0GCSqG
-SIb3DQEBDQUAA4ICAQC9fUL2sZPxIN2mD32VeNySTgZlCEdVmlq471o/bDMP4B8g
-nQesFRtXY2ZCjs50Jm73B2LViL9qlREmI6vE5IC8IsRBJSV4ce1WYxyXro5rmVg/
-k6a10rlsbK/eg//GHoJxDdXDOokLUSnxt7gk3QKpX6eCdh67p0PuWm/7WUJQxH2S
-DxsT9vB/iZriTIEe/ILoOQF0Aqp7AgNCcLcLAmbxXQkXYCCSB35Vp06u+eTWjG0/
-pyS5V14stGtw+fA0DJp5ZJV4eqJ5LqxMlYvEZ/qKTEdoCeaXv2QEmN6dVqjDoTAo
-k0t5u4YRXzEVCfXAC3ocplNdtCA72wjFJcSbfif4BSC8bDACTXtnPC7nD0VndZLp
-+RiNLeiENhk0oTC+UVdSc+n2nJOzkCK0vYu0Ads4JGIB7g8IB3z2t9ICmsWrgnhd
-NdcOe15BincrGA8avQ1cWXsfIKEjbrnEuEk9b5jel6NfHtPKoHc9mDpRdNPISeVa
-wDBM1mJChneHt59Nh8Gah74+TM1jBsw4fhJPvoc7Atcg740JErb904mZfkIEmojC
-VPhBHVQ9LHBAdM8qFI2kRK0IynOmAZhexlP/aT/kpEsEPyaZQlnBn3An1CRz8h0S
-PApL8PytggYKeQmRhl499+6jLxcZ2IegLfqq41dzIjwHwTMplg+1pKIOVojpWA==
------END CERTIFICATE-----
-</ca>
-key-direction 1
-<tls-auth>
-#
-# 2048 bit OpenVPN static key
-#
------BEGIN OpenVPN Static key V1-----
-e685bdaf659a25a200e2b9e39e51ff03
-0fc72cf1ce07232bd8b2be5e6c670143
-f51e937e670eee09d4f2ea5a6e4e6996
-5db852c275351b86fc4ca892d78ae002
-d6f70d029bd79c4d1c26cf14e9588033
-cf639f8a74809f29f72b9d58f9b8f5fe
-fc7938eade40e9fed6cb92184abb2cc1
-0eb1a296df243b251df0643d53724cdb
-5a92a1d6cb817804c4a9319b57d53be5
-80815bcfcb2df55018cc83fc43bc7ff8
-2d51f9b88364776ee9d12fc85cc7ea5b
-9741c4f598c485316db066d52db4540e
-212e1518a9bd4828219e24b20d88f598
-a196c9de96012090e333519ae18d3509
-9427e7b372d348d352dc4c85e18cd4b9
-3f8a56ddb2e64eb67adfc9b337157ff4
------END OpenVPN Static key V1-----
-</tls-auth>
- '';
   
   home-manager.users.tom = { pkgs, ... }: {
    home.packages = [ 
@@ -745,7 +700,7 @@ label = %output%
 
 [module/scalp]
 type = custom/script
-exec = polybar-position-exe.sh
+exec = /home/tom/.config/polybar-position-exe.sh
 interval = 1 
 label = %output%
 click-left = bash -c 'kitty sh -ic "sudo sh -c \\"if [ -f /tmp/option1_status ]; then rm /tmp/option1_status; else echo on > /tmp/option1_status; fi\\" "'
@@ -1847,11 +1802,9 @@ bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
      python310Packages.pyqt5
      xbindkeys
      openvpn
-     
+    # agenix 
 
-
-
-  (vscode-with-extensions.override {
+   (vscode-with-extensions.override {
     vscodeExtensions = with vscode-extensions; [
       ms-python.python
       ];
@@ -1961,6 +1914,36 @@ if [ ! -L /home/tom/.config/Passwords.kdbx ]; then
     sudo ln -s /home/tom/data/Passwords.kdbx /home/tom/.config/Passwords.kdbx
     echo "Keepassxc Symlink wurde erfolgreich gesetzt."
 fi
+
+
+# polybar-position.py
+if [ ! -L /home/tom/.config/polybar-position.py ]; then
+    ln -s /home/tom/data/scalp/polybar-position.py /home/tom/.config/polybar-position.py
+    echo "polybar-position.py Symlink wurde erfolgreich gesetzt."
+fi
+
+# shortcut-execute.sh
+if [ ! -L /home/tom/.config/shortcut-execute.sh ]; then
+    ln -s /home/tom/data/scalp/shortcut-execute.sh /home/tom/.config/shortcut-execute.sh
+    echo "shortcut-execute.sh Symlink wurde erfolgreich gesetzt."
+fi
+
+# polybar-positon-exe.sh
+if [ ! -L /home/tom/.config/polybar-position-exe.sh ]; then
+    ln -s /home/tom/data/scalp/polybar-position-exe.sh /home/tom/.config/polybar-position-exe.sh
+    echo "shortcut-execute.sh Symlink wurde erfolgreich gesetzt."
+fi
+
+
+if [ ! -L /etc/vpn.nordvpn.com.udp.ovpn ]; then
+    sudo ln -s /home/tom/data/nordvpn/vpn.nordvpn.com.udp.ovpn /etc/vpn.nordvpn.com.udp.ovpn
+fi
+
+#venv einrichten
+python3 -m venv /home/tom/.config/venv
+source /home/tom/.config/venv/bin/activate
+pip install requests
+deactivate
 
 #-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -2796,6 +2779,7 @@ else
 fi
  '')
 
+/*
 (pkgs.writeShellScriptBin "shortcut-execute.sh" ''
 #!/usr/bin/env bash
 
@@ -2885,7 +2869,7 @@ curl -X POST "$URL" \
      -d "$BODY"
 
 '')
-
+*/
 
 
 (pkgs.writeShellScriptBin "update-system.sh" ''
@@ -3401,7 +3385,7 @@ exit
   '')
 
 (pkgs.writeShellScriptBin "vpn-toggle.sh" ''
-VPN_CONFIG="/etc/at140.nordvpn.com.udp.ovpn"
+VPN_CONFIG="/etc/vpn.nordvpn.com.udp.ovpn"
 
 if ip a | grep -q "tun0"; then
   kitty -e bash -c "echo 'VPN wird getrennt...'; sudo pkill openvpn"
@@ -3419,7 +3403,7 @@ fi
 '')
 
 
-(let
+/*(let
 
   pkgs = import <nixpkgs> {};
 
@@ -3444,9 +3428,11 @@ bindxkeys_path   = "/home/tom/.xbindkeysrc"
 option_file      = "/tmp/option1_status"
 state_file       = "/tmp/position_state.json"
 
-API_KEY ='bg_c621d26cc7cb34436f79019f3de8a036'
-API_SECRET= 'a7dbc3236dc93861e9eb5ad9a48e34284be53df5f4c530a51b26765f64ce8dd1'
-API_PASSPHRASE = 'rCkX1LCNyxVDvW1A2hQHIyt9Yrmp'
+with open("/run/agenix/stripe-api-key", "r") as f:
+    API_KEY = f.read().strip()
+
+API_SECRET= ''
+API_PASSPHRASE = ' '
 
 # ——— Endpunkte ———
 BASE_URL          = "https://api.bitget.com"
@@ -3618,7 +3604,7 @@ ${myPython}/bin/python ${pythonScript}
 
 ''
 )
-
+*/
 
 (let
   pythonScript = pkgs.writeTextFile {
