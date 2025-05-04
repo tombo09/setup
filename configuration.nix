@@ -704,7 +704,7 @@ exec = /home/tom/.config/polybar-position-exe.sh
 interval = 1 
 label = %output%
 click-left = bash -c 'kitty sh -ic "sudo sh -c \\"if [ -f /tmp/option1_status ]; then rm /tmp/option1_status; else echo on > /tmp/option1_status; fi\\" "'
-click-right = echo -e "Ctrl + Alt + b\tLong limit_loop\nCtrl + Alt + s\tShort limit_loop\nAlt + Shift + b\tLong market\nAlt + Shift + s\tShort market\nAlt + Shift + Ctrl + s\tClose Short All market\nAlt + Shift + Ctrl + b\tClose Long All market\nShift + Ctrl + Tab + s\tClose Short 0.005 market\nCtrl + Shift + Tab + b \tClose Long 0.005 market\nCtrl + Tab + s\tClose Short All limit_loop\nCtrl + Tab + b\tClose Long All limit_loop" | rofi -dmenu -p "Shortcuts"
+click-right = echo -e "Ctrl + Alt + b\\tLong limit_loop\\nCtrl + Alt + s\\tShort limit_loop\\nAlt + Shift + b\\tLong market\\nAlt + Shift + s\\tShort market\\nAlt + Shift + Ctrl + s\\tClose Short All market\\nAlt + Shift + Ctrl + b\\tClose Long All market\\nShift + Ctrl + Tab + s\\tClose Short 0.005 market\\nCtrl + Shift + Tab + b\\tClose Long 0.005 market\\nCtrl + Tab + s\\tClose Short All limit_loop\\nCtrl + Tab + b\\tClose Long All limit_loop" | rofi -dmenu -p "Shortcuts"
 ;
 ;
 
