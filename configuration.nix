@@ -394,7 +394,9 @@ done
         initExtra = ''
   export GPG_TTY=$(tty)
   export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
-  
+  export EDITOR="nvim"
+
+
   # append to the history file, don't overwrite it
   shopt -s histappend
 
@@ -436,6 +438,7 @@ alias gitf='git add . && git commit -m "c" && git push'
     enable = true;
     userName  = "tombo09";
     userEmail = "regular.tb@gmail.com";
+    extraConfig = {pull.rebase = false;};
   };
 
   programs.kitty = {
