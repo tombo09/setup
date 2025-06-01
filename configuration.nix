@@ -2435,7 +2435,7 @@ fi
 set -euo pipefail
 
 ## Defaults
-keepGensDef=30; keepDaysDef=30
+keepGensDef=10; keepDaysDef=20
 keepGens=$keepGensDef; keepDays=$keepDaysDef
 
 ## Usage
