@@ -3,7 +3,7 @@
 # https://search.nixos.org/options and in the NixOS manual (`nixos-help`).
 
 { config, lib, pkgs, ... }:
-{
+
 /*let
   # 1) Import nixpkgs-unstable so we have replaceVars
   system = builtins.currentSystem;
@@ -29,8 +29,72 @@ in
     })
   ];
 */
- 
 
+let
+  lock-idle = pkgs.writeShellScriptBin "lock-idle" ''
+    #!/usr/bin/env sh
+    # kein set -e, damit wir Logs bekommen auch wenn ein Schritt fehlschlägt
+    set -u
+
+    BR=${pkgs.brightnessctl}/bin/brightnessctl
+    BL=${pkgs.betterlockscreen}/bin/betterlockscreen
+    XH=${pkgs.xidlehook}/bin/xidlehook
+
+    # Log & State
+    if printenv XDG_RUNTIME_DIR >/dev/null 2>&1 && [ -n "$XDG_RUNTIME_DIR" ]; then
+      LOG="$XDG_RUNTIME_DIR/lock-idle.log"
+      STATE="$XDG_RUNTIME_DIR/.orig-br"
+    else
+      UID="$(id -u)"
+      LOG="/run/user/$UID/lock-idle.log"
+      STATE="/run/user/$UID/.orig-br"
+    fi
+    log() { printf '%s %s\n' "$(date +%F_%T)" "$*" >>"$LOG"; }
+
+    save_once() {
+      [ -f "$STATE" ] || { "$BR" g > "$STATE" 2>>"$LOG"; log "saved raw=$(cat "$STATE")"; }
+    }
+    restore_if_saved() {
+      if [ -f "$STATE" ]; then
+        RAW="$(cat "$STATE" 2>/dev/null || true)"
+        [ -n "${RAW:-}" ] && { "$BR" set "$RAW" >>"$LOG" 2>&1 || true; log "restored raw=$RAW"; }
+        rm -f "$STATE" || true
+      else
+        log "no state to restore"
+      fi
+    }
+
+    arg="run"; [ "$#" -ge 1 ] && arg="$1"
+
+    case "$arg" in
+      dim)
+        log "dim"
+        save_once
+        "$BR" set 10% >>"$LOG" 2>&1 || true
+        ;;
+      undim)
+        log "undim"
+        restore_if_saved
+        ;;
+      lock)
+        log "lock"
+        save_once
+        "$BR" set 10% >>"$LOG" 2>&1 || true
+        "$BL" -l -- -n >>"$LOG" 2>&1 || true
+        restore_if_saved
+        ;;
+      run|*)
+        log "start xidlehook"
+        exec "$XH" --detect-sleep \
+          --timer 360 "$0 dim" "$0 undim" \
+          --timer 420 "$0 lock" :
+        ;;
+    esac
+  '';
+
+
+in
+  {
  imports =
     [ # Include the results of the hardware scan.
       /etc/nixos/hardware-configuration.nix
@@ -87,6 +151,31 @@ in
 #    options = "--delete-older-than 60d";
 #  };
 
+
+
+  services.redshift.enable = true;
+  location = {
+    provider = "manual";
+    latitude = 52.52;   # z.B. Berlin
+    longitude = 13.405;
+  };
+  services.redshift.temperature = { day = 5500; night = 3700; };
+
+
+
+systemd.user.services.lock-idle = {
+  description = "xidlehook + brightness restore";
+  after = [ "graphical-session.target" ];
+  partOf = [ "graphical-session.target" ];
+  wantedBy = [ "default.target" ];
+  serviceConfig = {
+    ExecStart = "${lock-idle}/bin/lock-idle";
+    Restart = "always";
+    # Optional:
+    # RestartSec = 2;
+
+  };
+};
 
   nix.optimise.automatic = true;
   nix.optimise.dates = [ "12:00" ]; # Optional; allows customizing optimisation schedule
@@ -156,7 +245,7 @@ ${pkgs.coreutils}/bin/chmod 644 /home/tom/setup/configuration.nix
 
    # DPMS and Screensaver settings
      xset +dpms
-     xset dpms 0 0 540
+     xset dpms 0 0 600
      xset s 0 0
      xset r rate 280 45
     '';
@@ -179,7 +268,7 @@ ${pkgs.coreutils}/bin/chmod 644 /home/tom/setup/configuration.nix
   # services.printing.enable = true;
 
   # Enable sound.
-  hardware.pulseaudio.enable = true;
+  services.pulseaudio.enable = true;
   nixpkgs.config.pulseaudio = true;
   # OR
    services.pipewire = {
@@ -306,7 +395,6 @@ IdleActionSec=5s
        dmenu
        obsidian
        yubioath-flutter
-       yubikey-manager-qt
        jetbrains.idea-ultimate
        gnupg
        spotify
@@ -331,7 +419,7 @@ IdleActionSec=5s
       name = "unlockAndMount";
       runtimeInputs = with pkgs; [
         cryptsetup
-        kdialog
+        kdePackages.kdialog
         coreutils  # Für grundlegende Befehle wie mkdir
         util-linux # Für mount
 	libnotify
@@ -365,10 +453,37 @@ done
       '';
     };
 
+
+monitorHook = pkgs.writeShellApplication {
+  name = "monitorHook";
+  runtimeInputs = with pkgs; [ kdePackages.kdialog coreutils systemd ];
+  text = ''
+    uid=$(id -u tom)
+    export DISPLAY=:0
+    export XAUTHORITY=/home/tom/.Xauthority
+    export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus
+    export XDG_RUNTIME_DIR=/run/user/$uid
+    export PATH="/etc/profiles/per-user/tom/bin:/run/current-system/sw/bin:$PATH"
+
+    st=/sys/class/drm/card1-DP-2/status
+    if [ -r "$st" ] && [ "$(cat "$st")" = "connected" ]; then
+      if kdialog --yesno "Externer Monitor (DP-2) erkannt. Layout anwenden?"; then
+        systemd-run --user --quiet --collect \
+          -E DISPLAY="$DISPLAY" \
+          -E XAUTHORITY="$XAUTHORITY" \
+          -E DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+          -E PATH="$PATH" \
+          setup-monitor.sh monitor left-of extend
+      fi
+    fi
+  '';
+};
+
   in ''
     ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_UUID}=="fa2a1b43-fe24-4213-819f-a3e72d8020b3", RUN+="${pkgs.sudo}/bin/sudo -u root ${unlockAndMount}/bin/unlockAndMount"
+    ACTION=="change", SUBSYSTEM=="drm", KERNEL=="card1",  RUN+="${pkgs.sudo}/bin/sudo -u tom ${monitorHook}/bin/monitorHook"
 
-  '';
+ '';
 
 
 
@@ -1037,6 +1152,23 @@ menu-0-10-exec = menu-open-7
 menu-0-11 = 
 menu-0-11-exec = menu-open-2
 
+
+
+
+menu-7-1 = Camera
+menu-7-1-exec = menu-open-9
+menu-7-2 = Microphone
+menu-7-2-exec = menu-open-10
+menu-9-0 = An
+menu-9-0-exec = bash -lc 'p=$(kdialog --password "sudo: Kamera aktivieren"); [ -n "$p" ] && echo "$p" | sudo -S modprobe uvcvideo && notify-send -t 4000 "Kamera" "Aktiviert" || notify-send -t 4000 "Kamera" "Fehlgeschlagen"'
+menu-9-1 = Aus
+menu-9-1-exec = bash -lc 'p=$(kdialog --password "sudo: Kamera deaktivieren"); [ -n "$p" ] && echo "$p" | sudo -S modprobe -r uvcvideo && notify-send -t 4000 "Kamera" "Deaktiviert" || notify-send -t 4000 "Kamera" "Fehlgeschlagen"'
+menu-10-0 = An
+menu-10-0-exec = pactl set-source-mute @DEFAULT_SOURCE@ 0 && notify-send -t 4000 "Mikrofon" "Aktiviert" || notify-send -t 4000 "Mikrofon" "Fehlgeschlagen"
+menu-10-1 = Aus
+menu-10-1-exec = pactl set-source-mute @DEFAULT_SOURCE@ 1 && notify-send -t 4000 "Mikrofon" "Deaktiviert" || notify-send -t 4000 "Mikrofon" "Fehlgeschlagen"
+
+
 menu-2-6 = Reboot
 menu-2-6-exec = systemctl reboot
 menu-2-7 = Shutdown
@@ -1055,10 +1187,15 @@ menu-2-2 = Suspend
 menu-2-2-exec = systemctl suspend
 
 
-menu-3-0 = +
-menu-3-0-exec = brightnessctl set +10%
-menu-3-1 = -
-menu-3-1-exec = brightnessctl set 10%-
+
+menu-3-0 = Slider
+menu-3-0-exec = bash -lc 'val=$(kdialog --slider "Helligkeit" 0 100 1); [ -n "$val" ] && brightnessctl set "''${val}%"'
+menu-3-1 = +
+menu-3-1-exec = brightnessctl set +10%
+menu-3-2 = -
+menu-3-2-exec = brightnessctl set 10%-
+menu-3-3 = Nightshift
+menu-3-3-exec = systemctl --user --quiet is-active redshift && systemctl --user stop redshift || systemctl --user start redshift
 
 menu-1-0 = 
 menu-1-0-exec = kitty
@@ -1412,8 +1549,11 @@ exec --no-startup-id nm-applet
 
 # Use pactl to adjust volume in PulseAudio.
 set $refresh_i3status killall -SIGUSR1 i3status
-bindsym XF86AudioRaiseVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ +10% && $refresh_i3status
-bindsym XF86AudioLowerVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -10% && $refresh_i3status
+#bindsym XF86AudioRaiseVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ +10% && $refresh_i3status
+#bindsym XF86AudioLowerVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -10% && $refresh_i3status
+
+bindsym XF86AudioRaiseVolume exec --no-startup-id pamixer -i 10 && killall -SIGUSR1 i3status
+bindsym XF86AudioLowerVolume exec --no-startup-id pamixer -d 10 && killall -SIGUSR1 i3status
 bindsym XF86AudioMute exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle && $refresh_i3status
 bindsym XF86AudioMicMute exec --no-startup-id pactl set-source-mute @DEFAULT_SOURCE@ toggle && $refresh_i3status
 
@@ -1559,10 +1699,12 @@ bindsym $mod+r mode "resize"
 
 
 
+
+
 #bindsym $mod+b exec --no-startup-id dmenu_run
 #exec xautolock -time 3 -locker "betterlockscreen -l"
 
-exec --no-startup-id xautolock -time 6 -locker "betterlockscreen -l" -corners -00- -detectsleep 
+#exec --no-startup-id xautolock -time 6 -locker "betterlockscreen -l" -corners -00- -detectsleep 
 exec --no-startup-id feh --bg-scale ~/.config/background.jpg
 exec --no-startup-id betterlockscreen -u ~/.config/background.jpg
 exec_always launch-polybar.sh
@@ -1791,7 +1933,6 @@ bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
      xdg-utils
      cryptsetup
      xorg.setxkbmap
-     kdialog
      libimobiledevice #for mounting iphone 
      ifuse   #for mounting iphone
      libheif #for converting iphone pictures
@@ -1805,7 +1946,11 @@ bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
      python310Packages.pyqt5
      xbindkeys
      openvpn
-    # agenix 
+    # agenix
+     kdePackages.kdialog
+     lock-idle
+     pamixer
+
 
    (vscode-with-extensions.override {
     vscodeExtensions = with vscode-extensions; [
