@@ -1351,10 +1351,12 @@ menu-5-4-exec = maim --window $(xdotool getactivewindow) | xclip -selection clip
 menu-5-5 = cpb sel 
 menu-5-5-exec = maim --select | xclip -selection clipboard -t image/png 
 
-menu-6-0 = eject Toshiba-2TB
-menu-6-0-exec = eject-extdisc.sh
-menu-6-1 = backup Iphone
-menu-6-1-exec = iphone-backup.sh
+menu-6-1 = eject Toshiba-2TB
+menu-6-1-exec = eject-extdisc.sh
+menu-6-2 = backup phone
+menu-6-2-exec = phone-backup.sh
+menu-6-0 = backup Toshiba-2TB
+menu-6-0-exec = backup-home.sh
 
 menu-7-0 = privacy-mode
 menu-7-0-exec = menu-open-8
@@ -2055,6 +2057,7 @@ bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
      kdePackages.kdialog
      lock-idle
      pamixer
+     android-tools
 
 
    (vscode-with-extensions.override {
@@ -2563,6 +2566,85 @@ done
 find "$BASEDIR" -type f -name "*.HEIC" -exec rm -f {} \;
 echo "Alle HEIC-Dateien wurden gelöscht."
   '')
+
+
+
+(pkgs.writeShellScriptBin "phone-backup.sh" ''
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- Einstellungen ---
+lockfile="/tmp/adb_dcim_sync.lock"
+BASEDIR="/home/tom/Pictures/phone/"
+CAMDIR="''${BASEDIR%/}/camera/"
+OTHDIR="''${BASEDIR%/}/other/"
+DEVICE_SERIAL="''${1:-akita}"     # Optional: ADB-Seriennummer als 1. Argument
+ADB_BIN="''${ADB_BIN:-adb}"
+
+notify() {
+  local msg="$1"
+  if command -v notify-send >/dev/null 2>&1; then
+    notify-send "Phone Backup" "$msg"
+  fi
+  echo "$msg" >&2
+}
+
+# --- Sofort prüfen: ist ein Phone da? ---
+$ADB_BIN start-server >/dev/null
+
+# Falls das angegebene/Standard-Gerät nicht erreichbar ist:
+if ! $ADB_BIN -s "$DEVICE_SERIAL" get-state >/dev/null 2>&1; then
+  # Nimm automatisch das einzige angeschlossene Gerät (falls genau eins vorhanden)
+  mapfile -t devices < <($ADB_BIN devices | awk '/\tdevice$/{print $1}')
+  if [ "''${#devices[@]}" -eq 1 ]; then
+    DEVICE_SERIAL="''${devices[0]}"
+  fi
+fi
+
+state="$($ADB_BIN -s "$DEVICE_SERIAL" get-state 2>/dev/null || true)"
+if [ "$state" != "device" ]; then
+  notify "Kein Phone gefunden – evtl. USB-Debugging aktivieren."
+  exit 1
+fi
+
+# --- Verzeichnisse anlegen ---
+mkdir -p "$CAMDIR" "$OTHDIR"
+
+# --- Lock prüfen ---
+if [ -e "$lockfile" ]; then
+  echo "Ein anderer Synchronisationsprozess läuft bereits."
+  exit 0
+fi
+touch "$lockfile"
+cleanup() { rm -f "$lockfile"; }
+trap cleanup EXIT
+
+# --- DCIM prüfen ---
+if ! $ADB_BIN -s "$DEVICE_SERIAL" shell 'test -d /sdcard/DCIM'; then
+  notify "Auf dem Gerät existiert kein /sdcard/DCIM."
+  exit 1
+fi
+
+echo "Synchronisiere von $DEVICE_SERIAL:/sdcard/DCIM nach $BASEDIR ..."
+
+# --- Camera-Inhalte nach phone/camera (ohne zusätzliche "Camera"-Ebene) ---
+if $ADB_BIN -s "$DEVICE_SERIAL" shell 'test -d /sdcard/DCIM/Camera'; then
+  $ADB_BIN -s "$DEVICE_SERIAL" pull -a "/sdcard/DCIM/Camera/." "$CAMDIR"
+fi
+
+# --- Alle anderen DCIM-Einträge nach phone/other ---
+mapfile -t entries < <($ADB_BIN -s "$DEVICE_SERIAL" shell 'ls -1 /sdcard/DCIM' | tr -d "\r" || true)
+for name in "''${entries[@]}"; do
+  [ -z "$name" ] && continue
+  [ "$name" = "Camera" ] && continue
+  $ADB_BIN -s "$DEVICE_SERIAL" pull -a "/sdcard/DCIM/$name" "$OTHDIR"
+done
+
+notify "Backup abgeschlossen."
+# Kurze Pause wie im Original (optional)
+sleep 5
+'')
+
 
 
 (pkgs.writeShellScriptBin "setup-monitor.sh" ''
