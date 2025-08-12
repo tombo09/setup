@@ -355,6 +355,8 @@ IdleActionSec=5s
 
 
 
+
+
   security.pam.services.login.rules.auth = {
     faillock_preauth = {
       order = 100;
@@ -523,7 +525,7 @@ persist-tun
 ping 15
 ping-restart 0
 ping-timer-rem
-reneg-sec 10800
+reneg-sec 7200
 comp-lzo no
 verify-x509-name CN=de1175.nordvpn.com
 pull-filter ignore "ifconfig-ipv6"
@@ -1256,7 +1258,8 @@ menu-0-11-exec = menu-open-2
 
 
 
-
+menu-7-3 = update-system
+menu-7-3-exec = sh -c 'kitty bash -lc "update-system.sh; exec bash -i"'
 menu-7-1 = Camera
 menu-7-1-exec = menu-open-9
 menu-7-2 = Microphone
@@ -3326,261 +3329,368 @@ fi
 
 #------------------------------------------------------------------------------------------------------------------------------------
 
-# Frage, ob System-Generations-Reinigung durchgeführt werden soll
-echo -ne "\e[1;34m>>\e[0m Möchtest du die System-Generations-Reinigung durchführen? (Y/n): "
-read clean_generations
-clean_generations=''${clean_generations:-y}
 
-if [[ $clean_generations =~ ^[Yy]$ ]]; then
-  set -euo pipefail
+# Frage, ob gereinigt werden soll
+printf "\e[1;34m>>\e[0m Möchtest du die System-Generations-Reinigung durchführen? (Y/n): "
+read -r clean_generations
+clean_generations="''${clean_generations:-y}"
 
-  ## Defaults
-  keepGensDef=10; keepDaysDef=30
-  keepGens=$keepGensDef; keepDays=$keepDaysDef
+run_cleanup() {
+  # KEIN set -e hier – wir wollen nach der Funktion weiterlaufen.
 
-  ## Usage
-  usage () {
-    printf "Usage:\n\t ./trim-generations.sh <keep-gernerations> <keep-days> <profile> \n\n
-  (defaults are: Keep-Gens=$keepGensDef Keep-Days=$keepDaysDef Profile=user)\n\n"
-    printf "If you enter any parameters, you must enter all three, or none to use defaults.\n"
-    printf "Example:\n\t trim-generations.sh 15 10 home-manager\n"
-    printf "  this will work on the home-manager profile and keep all generations from the\n"
-    printf "last 10 days, and keep at least 15 generations no matter how old.\n"
-    printf "\nProfiles available are:\tuser, home-manager, channels, system (root)\n"
-    printf "\n-h or --help prints this help text."
+  # Defaults (wie in deinem Lauf): 3 Generationen, 0 Tage
+  readonly keepGensDef=12
+  readonly keepDaysDef=14
+  keepGens=$keepGensDef
+  keepDays=$keepDaysDef
+
+  usage() {
+    cat <<'EOF'
+Usage:
+  ./trim-generations.sh <keep-generations> <keep-days> <profile>
+
+(defaults: Keep-Gens=3 Keep-Days=0 Profile=auto)
+
+If you enter any parameters, you must enter all three, or none to use defaults.
+Example:
+  trim-generations.sh 15 10 home-manager
+  -> works on the home-manager profile and keeps all generations from the last 10 days,
+     and keeps at least 15 generations no matter how old.
+
+Profiles: user, home-manager, channels, system
+EOF
   }
 
-  if [ $# -eq 1 ]; then
-    if [ $1 = "-h" ]; then
-      usage
-      exit 1
-    fi
-    if [ $1 = "--help" ]; then
-      usage
-      exit 2
-    fi
-    printf "Dont recognise your option exiting..\n\n"
-    usage
-    exit 3
+  # ----------------- Hilfsfunktionen -----------------
 
-  elif [ $# -eq 0 ]; then
-    printf "The current defaults are:\n Keep-Gens=$keepGensDef Keep-Days=$keepDaysDef \n\n"
-    read -p "Keep these defaults? (y/n):" answer
+  # Profil ist systemweit?
+  is_system_profile() {
+    [[ "$profile" == "/nix/var/nix/profiles/system" || "$profile" == "/nix/var/nix/profiles/default" ]]
+  }
 
+  # Root-Runner: führt Befehl als Root aus (sudo, falls nötig)
+  run_root() {
+    if (( EUID == 0 )); then
+      "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+      sudo -- "$@"
+    else
+      echo "Benötige Root für: $* (kein sudo gefunden)" >&2
+      return 126
+    fi
+  }
+
+  # Sudo-Credential vorab holen (FIX: korrekt 'sudo -v', NICHT über run_root)
+  ensure_sudo() {
+    if (( EUID == 0 )); then return 0; fi
+    if ! command -v sudo >/dev/null 2>&1; then
+      echo "sudo nicht verfügbar – System-Generationen können nicht geprüft/gelöscht werden." >&2
+      return 1
+    fi
+    echo "Zur Prüfung/Löschung von System-Generationen werden Root-Rechte benötigt."
+    sudo -v   # <--- FIX: richtige Passwortabfrage
+  }
+
+  # Boot-Menü aktualisieren (nur fürs System-Profil)
+  refresh_boot_entries() {
+    is_system_profile || return 0
+    run_root /run/current-system/bin/switch-to-configuration boot \
+      || run_root nixos-rebuild boot \
+      || run_root nixos-rebuild switch \
+      || true
+  }
+
+  # GC: systemweit fürs System-Profil, sonst user-GC
+  run_gc() {
+    if is_system_profile; then
+      if command -v nix >/dev/null 2>&1; then
+        run_root nix store gc || true
+      else
+        run_root nix-collect-garbage -d || true
+      fi
+    else
+      if command -v nix >/dev/null 2>&1; then
+        nix store gc || true
+      else
+        nix-collect-garbage -d || true
+      fi
+    fi
+  }
+
+  # Generationsliste des aktuellen $profile
+  list_generations() {
+    if is_system_profile; then
+      run_root nix-env --list-generations -p "$profile"
+    else
+      nix-env --list-generations -p "$profile"
+    fi
+  }
+
+  # Automatische Profilwahl (System zuerst, wenn gewünscht; dann HM/User)
+  auto_pick_profile() {
+    local include_system="$1" p
+
+    if (( EUID == 0 )); then
+      # Root: System zuerst, danach ggf. User-ähnliche Profile
+      for p in \
+        "/nix/var/nix/profiles/system" \
+        "/nix/var/nix/profiles/default" \
+        "''${XDG_STATE_HOME:-$HOME/.local/state}/nix/profiles/home-manager" \
+        "$HOME/.nix-profile" \
+        "/nix/var/nix/profiles/per-user/$USER/channels"
+      do
+        if nix-env --list-generations -p "$p" >/dev/null 2>&1 \
+           && [[ -n $(nix-env --list-generations -p "$p") ]]; then
+          profile="$p"; return 0
+        fi
+      done
+    else
+      # User: Wenn System eingeschlossen werden soll -> System zuerst via sudo
+      if [[ "$include_system" =~ ^[Yy]$ ]]; then
+        if ensure_sudo; then
+          for p in \
+            "/nix/var/nix/profiles/system" \
+            "/nix/var/nix/profiles/default"
+          do
+            if run_root nix-env --list-generations -p "$p" >/dev/null 2>&1 \
+               && [[ -n $(run_root nix-env --list-generations -p "$p") ]]; then
+              profile="$p"; return 0
+            fi
+          done
+        fi
+      fi
+      # Danach (oder wenn include_system != Y): HM -> User -> Channels
+      for p in \
+        "''${XDG_STATE_HOME:-$HOME/.local/state}/nix/profiles/home-manager" \
+        "$HOME/.nix-profile" \
+        "/nix/var/nix/profiles/per-user/$USER/channels"
+      do
+        if nix-env --list-generations -p "$p" >/dev/null 2>&1 \
+           && [[ -n $(nix-env --list-generations -p "$p") ]]; then
+          profile="$p"; return 0
+        fi
+      done
+    fi
+
+    return 1
+  }
+
+  # ----------------- Interaktiv/Args -----------------
+
+  # Optional: System-Generationen berücksichtigen?
+  include_sys="y"
+  if (( EUID != 0 )); then
+    printf "\e[1;34m>>\e[0m Sollen auch System-Generationen geprüft/gelöscht werden? (Y/n): "
+    read -r include_sys
+    include_sys="''${include_sys:-y}"
+  fi
+
+  # Args (0, 3 oder --help)
+  if (( $# == 1 )); then
+    case "$1" in
+      -h|--help) usage; return 0 ;;
+      *) printf "Unbekannte Option.\n\n"; usage; return 3 ;;
+    esac
+  elif (( $# == 0 )); then
+    printf "Die aktuellen Defaults sind:\n  Keep-Gens=%s  Keep-Days=%s\n\n" "$keepGensDef" "$keepDaysDef"
+    read -r -p "Defaults beibehalten? (y/n): " answer
     case "$answer" in
-      [yY1] )
-        printf "Using defaults..\n"
-        ;;
-      [nN0] )
-        printf "ok, doing nothing, exiting..\n"
-        exit 6
-        ;;
-      *     )
-        printf "%b" "Doing nothing, exiting.."
-        exit 7
-        ;;
+      [yY1]|"") printf "Verwende Defaults …\n" ;;
+      [nN0])    printf "Ok, breche ab …\n"; return 6 ;;
+      *)        printf "Eingabe nicht verstanden. Abbruch.\n"; return 7 ;;
     esac
   fi
 
-  ## Handle parameters (and change if root)
-  if [[ $EUID -ne 0 ]]; then
-    profile=$(readlink /home/$USER/.nix-profile)
+  # Vorbelegung, wird evtl. von auto_pick überschrieben
+  if (( EUID != 0 )); then
+    profile="$HOME/.nix-profile"
   else
-    if [ -d /nix/var/nix/profiles/system ]; then
+    if   [ -d /nix/var/nix/profiles/system ]; then
       profile="/nix/var/nix/profiles/system"
     elif [ -d /nix/var/nix/profiles/default ]; then
       profile="/nix/var/nix/profiles/default"
     else
-      echo "Cant find profile for root. Exiting"
-      exit 8
+      echo "Konnte Root-Profil nicht finden. Abbruch."
+      return 8
     fi
   fi
 
+  # Parameter prüfen/setzen
   if (( $# < 1 )); then
-    printf "Keeping default: $keepGensDef generations OR $keepDaysDef days, whichever is more\n"
-  elif [[ $# -le 2 ]]; then
-    printf "\nError: Not enough arguments.\n\n" >&2
-    usage
-    exit 1
-  elif (( $# > 4)); then
-    printf "\nError: Too many arguments.\n\n" >&2
-    usage
-    exit 2
+    printf "Behalte Standard: mind. %s Generation(en) ODER %s Tage, je nachdem was mehr ist.\n" "$keepGensDef" "$keepDaysDef"
+    if auto_pick_profile "$include_sys"; then
+      if is_system_profile && (( EUID != 0 )); then
+        printf "Automatisch gewähltes Profil: %s (via sudo)\n" "$profile"
+      else
+        printf "Automatisch gewähltes Profil: %s\n" "$profile"
+      fi
+    else
+      printf "Hinweis: Kein Profil mit Generationen gefunden.\n"
+    fi
+  elif (( $# <= 2 )); then
+    printf "\nFehler: Zu wenige Argumente.\n\n" >&2
+    usage; return 1
+  elif (( $# > 3 )); then
+    printf "\nFehler: Zu viele Argumente.\n\n" >&2
+    usage; return 2
   else
-    if [ $1 -lt 1 ]; then
-      printf "using Gen numbers less than 1 not recommended. Setting to min=1\n"
-      read -p "is that ok? (y/n): " asnwer
-      case "$asnwer" in
-        [yY1] )
-          printf "ok, continuing..\n"
-          ;;
-        [nN0] )
-          printf "ok, doing nothing, exiting..\n"
-          exit 6
-          ;;
-        *     )
-          printf "%b" "Doing nothing, exiting.."
-          exit 7
-          ;;
-      esac
-    fi
-    if [ $2 -lt 0 ]; then
-      printf "using negative days number not recommended. Setting to min=0\n"
-      read -p "is that ok? (y/n): " asnwer
+    # Numerisch validieren
+    if [[ ! $1 =~ ^[0-9]+$ ]]; then printf "keep-generations muss eine Zahl >=1 sein.\n"; return 1; fi
+    if [[ ! $2 =~ ^[0-9]+$ ]]; then printf "keep-days muss eine Zahl >=0 sein.\n"; return 1; fi
 
-      case "$asnwer" in
-        [yY1] )
-          printf "ok, continuing..\n"
-          ;;
-        [nN0] )
-          printf "ok, doing nothing, exiting..\n"
-          exit 6
-          ;;
-        *     )
-          printf "%b" "Doing nothing, exiting.."
-          exit 7
-          ;;
-      esac
-    fi
-
-    keepGens=$1; keepDays=$2;
+    keepGens=$1
+    keepDays=$2
     (( keepGens < 1 )) && keepGens=1
     (( keepDays < 0 )) && keepDays=0
 
-    if [[ $EUID -ne 0 ]]; then
-      if [[ $3 == "user" ]] || [[ $3 == "default" ]]; then
-        profile=$(readlink /home/$USER/.nix-profile)
-      elif [[ $3 == "home-manager" ]]; then
-        profile="''${XDG_STATE_HOME:-$HOME/.local/state}/nix/profiles/home-manager"
-      elif [[ $3 == "channels" ]]; then
-        profile="/nix/var/nix/profiles/per-user/$USER/channels"
-      else
-        printf "\nError: Do not understand your third argument. Should be one of: (user / home-manager/ channels)\n\n"
-        usage
-        exit 3
-      fi
+    # Profil aus drittem Argument wählen
+    if (( EUID != 0 )); then
+      case "$3" in
+        user|default)  profile="$HOME/.nix-profile" ;;
+        home-manager)  profile="''${XDG_STATE_HOME:-$HOME/.local/state}/nix/profiles/home-manager" ;;
+        channels)      profile="/nix/var/nix/profiles/per-user/$USER/channels" ;;
+        system)        profile="/nix/var/nix/profiles/system" ;; # via sudo
+        *)
+          printf "\nFehler: Drittes Argument unbekannt. Erlaubt: user | home-manager | channels | system\n\n"
+          usage; return 3 ;;
+      esac
     else
-      if [[ $3 == "system" ]]; then
-        profile="/nix/var/nix/profiles/system"
-      elif [[ $3 == "user" ]] || [[ $3 == "default" ]]; then
-        profile="/nix/var/nix/profiles/default"
-      else
-        printf "\nError: Do not understand your third argument. Should be one of: (user / system)\n\n"
-        usage
-        exit 3
-      fi
+      case "$3" in
+        system)        profile="/nix/var/nix/profiles/system" ;;
+        user|default)  profile="/nix/var/nix/profiles/default" ;;
+        home-manager|channels)
+          printf "Hinweis: Für %s bitte als normaler User starten.\n" "$3"
+          ;;
+        *)
+          printf "\nFehler: Drittes Argument unbekannt. Erlaubt: user | system\n\n"
+          usage; return 3 ;;
+      esac
     fi
-
-    printf "OK! \t Keep Gens = $keepGens \t Keep Days = $keepDays\n\n"
+    printf "OK!   Keep Gens = %s   Keep Days = %s\n\n" "$keepGens" "$keepDays"
   fi
 
-  printf "Operating on profile: \t $profile\n\n"
+  # Wenn System-Profil gewählt und wir sind kein Root: vorab sudo anfordern
+  if (( EUID != 0 )) && is_system_profile; then
+    ensure_sudo || echo "Ohne sudo können System-Generationen nicht bearbeitet werden."
+  fi
 
-  ## Runs at the end, to decide whether to delete profiles that match chosen parameters.
-  choose () {
-    local default="$1"
-    local prompt="$2"
-    local answer
+  printf "Arbeite auf Profil: %s\n\n" "$profile"
 
-    read -p "$prompt" answer
-    [ -z "$answer" ] && answer="$default"
+  # ----------------- Hauptlogik -----------------
 
-    case "$answer" in
-      [yY1] )
-        nix-env --delete-generations -p $profile ''${!gens[@]}
-        exit 0
-        ;;
-      [nN0] )
-        printf "Ok doing nothing exiting..\n"
-        exit 6
-        ;;
-      *     )
-        printf "%b" "Unexpected answer '$answer'!" >&2
-        exit 7
-        ;;
-    esac
-  }
+  # Generationsliste einlesen (ggf. via sudo)
+  mapfile -t nixGens < <(list_generations \
+                       | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+                       | tr '\t' ' ' | tr -s ' ')
+  if (( ''${#nixGens[@]} == 0 )); then
+    echo "Keine Generationen gefunden."
+    return 9
+  fi
 
-  ## Query nix-env for generations list
-  IFS=$'\n' nixGens=( $(nix-env --list-generations -p $profile | sed 's:^\s*::; s:\s*$::' | tr '\t' ' ' | tr -s ' ') )
   timeNow=$(date +%s)
 
-  ## Get info on oldest generation
-  IFS=' ' read -r -a oldestGenArr <<< "''${nixGens[0]}"
-  oldestGen=''${oldestGenArr[0]}
-  oldestDate=''${oldestGenArr[1]}
-  printf "%-30s %s\n" "oldest generation:" $oldestGen
-  printf "%-30s %s\n" "oldest generation created:" $oldestDate
+  # Älteste Generation
+  IFS=' ' read -r oldestGen oldestDate _ <<< "''${nixGens[0]}"
+  printf "%-30s %s\n" "oldest generation:" "$oldestGen"
+  printf "%-30s %s\n" "oldest generation created:" "$oldestDate"
   oldestTime=$(date -d "$oldestDate" +%s)
-  oldestElapsedSecs=$((timeNow-oldestTime))
-  oldestElapsedMins=$((oldestElapsedSecs/60))
-  oldestElapsedHours=$((oldestElapsedMins/60))
-  oldestElapsedDays=$((oldestElapsedHours/24))
-  printf "%-30s %s\n" "minutes before now:" $oldestElapsedMins
-  printf "%-30s %s\n" "hours before now:" $oldestElapsedHours
-  printf "%-30s %s\n" "days before now:" $oldestElapsedDays
+  oldestElapsedSecs=$(( timeNow - oldestTime ))
+  printf "%-30s %s\n" "minutes before now:" $(( oldestElapsedSecs/60 ))
+  printf "%-30s %s\n" "hours before now:"   $(( oldestElapsedSecs/3600 ))
+  printf "%-30s %s\n" "days before now:"    $(( oldestElapsedSecs/86400 ))
 
-  ## Get info on current generation
-  for i in "''${nixGens[@]}"; do
-    IFS=' ' read -r -a iGenArr <<< "$i"
-    genNumber=''${iGenArr[0]}
-    genDate=''${iGenArr[1]}
-
-    if [[ "$i" =~ current ]]; then
+  # Aktuelle Generation
+  currentGen=""
+  for line in "''${nixGens[@]}"; do
+    if [[ $line == *"(current)"* ]]; then
+      IFS=' ' read -r genNumber genDate _ <<< "$line"
       currentGen=$genNumber
-      printf "%-30s %s\n" "current generation:" $currentGen
       currentDate=$genDate
-      printf "%-30s %s\n" "current generation created:" $currentDate
+      printf "%-30s %s\n" "current generation:" "$currentGen"
+      printf "%-30s %s\n" "current generation created:" "$currentDate"
       currentTime=$(date -d "$currentDate" +%s)
-      currentElapsedSecs=$((timeNow-currentTime))
-      currentElapsedMins=$((currentElapsedSecs/60))
-      currentElapsedHours=$((currentElapsedMins/60))
-      currentElapsedDays=$((currentElapsedHours/24))
-      printf "%-30s %s\n" "minutes before now:" $currentElapsedMins
-      printf "%-30s %s\n" "hours before now:" $currentElapsedHours
-      printf "%-30s %s\n" "days before now:" $currentElapsedDays
+      currentElapsedSecs=$(( timeNow - currentTime ))
+      printf "%-30s %s\n" "minutes before now:" $(( currentElapsedSecs/60 ))
+      printf "%-30s %s\n" "hours before now:"   $(( currentElapsedSecs/3600 ))
+      printf "%-30s %s\n" "days before now:"    $(( currentElapsedSecs/86400 ))
+      break
+    fi
+  done
+  if [[ -z ''${currentGen:-} ]]; then
+    echo "Warnung: Konnte 'current' Generation nicht bestimmen."
+    return 10
+  fi
+
+  # Prüfkriterien (Frühabbruch nur wenn BEIDE Kriterien „behalten“ signalisieren)
+  timeBetweenOldestAndCurrent=$(( currentTime - oldestTime ))
+  elapsedDays=$(( timeBetweenOldestAndCurrent / 86400 ))
+  generationsDiff=$(( currentGen - oldestGen ))
+
+  if (( elapsedDays <= keepDays )) && (( generationsDiff < keepGens )); then
+    printf "Alle Generationen sind jung (<= %s Tage) UND insgesamt <= %s zurück.\n\tNichts zu tun!\n" "$keepDays" "$keepGens"
+    return 4
+  fi
+
+  printf "\tEs gibt etwas zu löschen …\n"
+  declare -A gens=()
+
+  # Kandidaten: (älter als keepDays) ODER (weiter zurück als keepGens)
+  for line in "''${nixGens[@]}"; do
+    IFS=' ' read -r genNumber genDate _ <<< "$line"
+    [[ "$genNumber" == "$currentGen" ]] && continue
+    genTime=$(date -d "$genDate" +%s)
+    genDaysOld=$(( (timeNow - genTime) / 86400 ))
+    genDiff=$(( currentGen - genNumber ))
+
+    if (( genDaysOld > keepDays )) || (( genDiff >= keepGens )); then
+      gens["$genNumber"]="$genDate, $genDaysOld day(s) old"
     fi
   done
 
-  ## Compare oldest and current generations
-  timeBetweenOldestAndCurrent=$((currentTime-oldestTime))
-  elapsedDays=$((timeBetweenOldestAndCurrent/60/60/24))
-  generationsDiff=$((currentGen-oldestGen))
-
-  ## Figure out what we should do, based on generations and options
-  if [[ elapsedDays -le keepDays ]]; then
-    printf "All generations are no more than $keepDays days older than current generation. \nOldest gen days difference from current gen: $elapsedDays \n\n\tNothing to do!\n"
-    exit 4
-  elif [[ generationsDiff -lt keepGens ]]; then
-    printf "Oldest generation ($oldestGen) is only $generationsDiff generations behind current ($currentGen). \n\n\t Nothing to do!\n"
-    exit 5
-  else
-    printf "\tSomething to do...\n"
-    declare -a gens
-
-    for i in "''${nixGens[@]}"; do
-      IFS=' ' read -r -a iGenArr <<< "$i"
-      genNumber=''${iGenArr[0]}
-      genDiff=$((currentGen-genNumber))
-      genDate=''${iGenArr[1]}
-      genTime=$(date -d "$genDate" +%s)
-      elapsedSecs=$((timeNow-genTime))
-      genDaysOld=$((elapsedSecs/60/60/24))
-
-      if [[ genDaysOld -gt keepDays ]] && [[ genDiff -ge keepGens ]]; then
-        gens["$genNumber"]="$genDate, $genDaysOld day(s) old"
-      fi
-    done
-
-    printf "\nFound the following generation(s) to delete:\n"
-    for K in "''${!gens[@]}"; do
-      printf "generation $K \t ''${gens[$K]}\n"
-    done
-    printf "\n"
-    choose "y" "Do you want to delete these? [Y/n]: "
+  if (( ''${#gens[@]} == 0 )); then
+    printf "Keine löschbaren Generationen gemäß Regeln gefunden.\n"
+    return 0
   fi
 
-  echo "Systemaktualisierung abgeschlossen."
+  printf "\nGefundene Generation(en) zum Löschen:\n"
+  for K in "''${!gens[@]}"; do
+    printf "generation %s\t %s\n" "$K" "''${gens[$K]}"
+  done
+  printf "\n"
+
+  # Bestätigen: löschen + Boot-Refresh + GC
+  choose () {
+    local default="$1" prompt="$2" answer
+    read -r -p "$prompt" answer
+    [ -z "$answer" ] && answer="$default"
+
+    case "$answer" in
+      [yY1])
+        # ''${!gens[@]} expandiert die zu löschenden Generationsnummern (absichtlich unquoted)
+        if is_system_profile; then
+          # shellcheck disable=SC2086
+          run_root nix-env --delete-generations -p "$profile" ''${!gens[@]}
+        else
+          # shellcheck disable=SC2086
+          nix-env --delete-generations -p "$profile" ''${!gens[@]}
+        fi
+        refresh_boot_entries
+        run_gc
+        return 0 ;;
+      [nN0])
+        printf "Ok, nichts gelöscht. Beende …\n"
+        return 6 ;;
+      *)
+        printf "Unerwartete Eingabe '%s'!\n" "$answer" >&2
+        return 7 ;;
+    esac
+  }
+
+  choose "y" "Diese löschen? [Y/n]: " || return $?
+}
+
+if [[ $clean_generations =~ ^[Yy]$ ]]; then
+  run_cleanup "$@"
 fi
 
 #--------------------------------------------------------------------------------
