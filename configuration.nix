@@ -232,18 +232,57 @@ ${pkgs.coreutils}/bin/chmod 644 /home/tom/setup/configuration.nix
   services.xserver.windowManager.i3.enable = true;
 
 
+
+  services.xserver = {
+
+  xkb.layout = "myus";    # dein Name aus extraLayouts
+  xkb.variant = "";       # leer lassen, wenn du "basic" willst
+    # Custom-Layout einbinden
+    xkb.extraLayouts.myus = {
+      description = "US + AltGr: ä ö ü ß € ¢";
+      languages = [ "eng" "deu" ];
+      symbolsFile = pkgs.writeText "myus" ''
+        // Basis: US, Ebene 3 via Right Alt (AltGr)
+        xkb_symbols "basic" {
+          include "us(basic)"
+          include "level3(ralt_switch)"
+
+          // e/E -> AltGr: €
+          key <AD03> { [ e, E, EuroSign, EuroSign ] };
+          // c/C -> AltGr: ¢
+          key <AB03> { [ c, C, cent, cent ] };
+
+          // a/A -> AltGr: ä/Ä
+          key <AC01> { [ a, A, adiaeresis, Adiaeresis ] };
+          // o/O -> AltGr: ö/Ö
+          key <AD09> { [ o, O, odiaeresis, Odiaeresis ] };
+          // u/U -> AltGr: ü/Ü
+          key <AD07> { [ u, U, udiaeresis, Udiaeresis ] };
+          // s/S -> AltGr: ß/ẞ
+          key <AC02> { [ s, S, ssharp, U1E9E ] };
+        };
+      '';
+    };
+
+
+  };
+
+
+
+
+
   services.xserver.displayManager.sessionCommands = ''
-    ${pkgs.xorg.xmodmap}/bin/xmodmap "${pkgs.writeText  "xkb-layout" ''
+#    ${pkgs.xorg.xmodmap}/bin/xmodmap "${pkgs.writeText  "xkb-layout" ''
      
-   ! Map umlauts to RIGHT ALT + <key>
-        keycode 108 = Mode_switch
-        keysym e = e E EuroSign
-        keysym c = c C cent
-        keysym a = a A adiaeresis Adiaeresis
-        keysym o = o O odiaeresis Odiaeresis
-        keysym u = u U udiaeresis Udiaeresis
-        keysym s = s S ssharp
-      ''}"
+#   ! Map umlauts to RIGHT ALT + <key>
+#        keycode 108 = Mode_switch
+#        keysym e = e E EuroSign
+#        keysym c = c C cent
+#        keysym a = a A adiaeresis Adiaeresis
+#        keysym o = o O odiaeresis Odiaeresis
+#        keysym u = u U udiaeresis Udiaeresis
+#        keysym s = s S ssharp
+#      ''}"
 
    # DPMS and Screensaver settings
      xset +dpms
@@ -254,17 +293,21 @@ ${pkgs.coreutils}/bin/chmod 644 /home/tom/setup/configuration.nix
 
 
 
-  systemd.user.services.setxkbmap = {
-    description = "Set X Keyboard Map";
-    serviceConfig = {
-      ExecStart = "${pkgs.xorg.setxkbmap}/bin/setxkbmap us";
-    };
-    wantedBy = [ "default.target" ];
-  };
+#  systemd.user.services.setxkbmap = {
+#    description = "Set X Keyboard Map";
+#    serviceConfig = {
+#      ExecStart = "${pkgs.xorg.setxkbmap}/bin/setxkbmap us";
+#    };
+#    wantedBy = [ "default.target" ];
+#  };
 
   # Configure keymap in X11
-  services.xserver.xkb.layout = "us";
-  services.xserver.xkb.options = "eurosign:e,caps:escape";
+#  services.xserver.xkb.layout = "us";
+#  services.xserver.xkb.options = "eurosign:e,caps:escape";
+
+
+
+
 
   # Enable CUPS to print documents.
   # services.printing.enable = true;
