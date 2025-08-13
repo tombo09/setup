@@ -491,12 +491,36 @@ monitorHook = pkgs.writeShellApplication {
       fi
     fi
   '';
+
 };
+
+  phoneHook = pkgs.writeShellApplication {
+    name = "phoneHook";
+    runtimeInputs = with pkgs; [ coreutils systemd ];
+    text = ''
+      uid=$(id -u tom)
+      export DISPLAY=:0
+      export XAUTHORITY=/home/tom/.Xauthority
+      export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus
+      export XDG_RUNTIME_DIR=/run/user/$uid
+      export PATH="/etc/profiles/per-user/tom/bin:/run/current-system/sw/bin:$PATH"
+
+      # phone-backup.sh soll in Toms PATH liegen (z.B. per Home-Manager/Profil installiert)
+      # Seriennummer deines Phones wird als Argument übergeben:
+      systemd-run --user --quiet --collect \
+        -E DISPLAY="$DISPLAY" \
+        -E XAUTHORITY="$XAUTHORITY" \
+        -E DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+        -E PATH="$PATH" \
+        phone-backup.sh 3C181JEKB05184
+    '';
+  };
+
 
   in ''
     ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_UUID}=="fa2a1b43-fe24-4213-819f-a3e72d8020b3", RUN+="${pkgs.sudo}/bin/sudo -u root ${unlockAndMount}/bin/unlockAndMount"
     ACTION=="change", SUBSYSTEM=="drm", KERNEL=="card1",  RUN+="${pkgs.sudo}/bin/sudo -u tom ${monitorHook}/bin/monitorHook"
-
+    ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device",ATTRS{idVendor}=="18d1", ATTRS{serial}=="3C181JEKB05184", RUN+="${pkgs.sudo}/bin/sudo -u tom ${phoneHook}/bin/phoneHook"
  '';
 
 
@@ -2058,6 +2082,7 @@ bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
      lock-idle
      pamixer
      android-tools
+     adb-sync
 
 
    (vscode-with-extensions.override {
@@ -2569,6 +2594,7 @@ echo "Alle HEIC-Dateien wurden gelöscht."
 
 
 
+
 (pkgs.writeShellScriptBin "phone-backup.sh" ''
 #!/usr/bin/env bash
 set -euo pipefail
@@ -2589,23 +2615,54 @@ notify() {
   echo "$msg" >&2
 }
 
-# --- Sofort prüfen: ist ein Phone da? ---
-$ADB_BIN start-server >/dev/null
+# --- Vor der ersten Suche kurz warten ---
+sleep 5
 
-# Falls das angegebene/Standard-Gerät nicht erreichbar ist:
-if ! $ADB_BIN -s "$DEVICE_SERIAL" get-state >/dev/null 2>&1; then
-  # Nimm automatisch das einzige angeschlossene Gerät (falls genau eins vorhanden)
-  mapfile -t devices < <($ADB_BIN devices | awk '/\tdevice$/{print $1}')
-  if [ "''${#devices[@]}" -eq 1 ]; then
-    DEVICE_SERIAL="''${devices[0]}"
+# --- ADB starten ---
+$ADB_BIN start-server >/dev/null 2>&1 || true
+
+# --- Bis zu 3 Versuche, Gerät zu finden (mit 5s Pause) ---
+attempt=1
+max_attempts=3
+found=0
+
+while [ "''${attempt}" -le "''${max_attempts}" ]; do
+  if $ADB_BIN -s "$DEVICE_SERIAL" get-state >/dev/null 2>&1; then
+    found=1
+  else
+    # Falls das angegebene/Standard-Gerät nicht erreichbar ist:
+    mapfile -t devices < <($ADB_BIN devices | awk '/\tdevice$/{print $1}' | tr -d "\r")
+    if [ "''${#devices[@]}" -eq 1 ]; then
+      DEVICE_SERIAL="''${devices[0]}"
+      if $ADB_BIN -s "$DEVICE_SERIAL" get-state >/dev/null 2>&1; then
+        found=1
+      fi
+    fi
   fi
-fi
+
+  [ "''${found}" -eq 1 ] && break
+
+  if [ "''${attempt}" -lt "''${max_attempts}" ]; then
+    sleep 5
+  fi
+  attempt=$((attempt+1))
+done
 
 state="$($ADB_BIN -s "$DEVICE_SERIAL" get-state 2>/dev/null || true)"
-if [ "$state" != "device" ]; then
+if [ "''${found}" -ne 1 ] || [ "$state" != "device" ]; then
   notify "Kein Phone gefunden – evtl. USB-Debugging aktivieren."
   exit 1
 fi
+
+# --- kdialog-Abfrage vor Start ---
+notify "Phone gefunden ($DEVICE_SERIAL)."
+if command -v kdialog >/dev/null 2>&1; then
+  if ! kdialog --yesno "Phone ($DEVICE_SERIAL) erkannt.\nBackup jetzt starten?"; then
+    notify "Backup abgebrochen."
+    exit 0
+  fi
+fi
+notify "Starte Backup …"
 
 # --- Verzeichnisse anlegen ---
 mkdir -p "$CAMDIR" "$OTHDIR"
@@ -2644,7 +2701,6 @@ notify "Backup abgeschlossen."
 # Kurze Pause wie im Original (optional)
 sleep 5
 '')
-
 
 
 (pkgs.writeShellScriptBin "setup-monitor.sh" ''
