@@ -592,7 +592,7 @@ persist-tun
 ping 15
 ping-restart 0
 ping-timer-rem
-reneg-sec 7200
+reneg-sec 0
 comp-lzo no
 verify-x509-name CN=de1175.nordvpn.com
 pull-filter ignore "ifconfig-ipv6"
