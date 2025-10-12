@@ -207,7 +207,7 @@ systemd.user.services.lock-idle = {
 ${pkgs.coreutils}/bin/mkdir -p /home/tom/Pictures/screenshots
 
 if [ ! -d "/home/tom/setup" ]; then
-    ${pkgs.git}/bin/git clone https://github.com/tombo0909/setup.git /home/tom/setup
+    ${pkgs.git}/bin/git clone https://github.com/tombo09/setup.git /home/tom/setup
 fi
 
 if [ ! -d "/home/tom/setup" ]; then
@@ -2167,8 +2167,8 @@ cd /home/tom/setup
 
 # Überprüfen, ob das Remote-Repository bereits gesetzt wurde
 REMOTE_URL=$(git remote get-url origin)
-if [ "$REMOTE_URL" != "git@github.com:tombo0909/setup.git" ]; then
-    git remote set-url origin git@github.com:tombo0909/setup.git
+if [ "$REMOTE_URL" != "git@github.com:tombo09/setup.git" ]; then
+    git remote set-url origin git@github.com:tombo09/setup.git
     echo "Git remote URL wurde gesetzt."
 else
     echo "Git remote URL ist bereits korrekt."
@@ -2187,7 +2187,7 @@ if [[ ! $REPLY =~ ^[Nn]$ ]]; then
         sleep 0.7
     done
     echo "YubiKey erkannt."
-    if git clone git@github.com:tombo0909/data.git; then
+    if git clone git@github.com:tombo09/data.git; then
         echo "Das Repository wurde erfolgreich geklont."
     else
         echo "Das Klonen des Repositories ist fehlgeschlagen."
@@ -3878,7 +3878,7 @@ fi
 
 
 # URL des Git-Repositories festlegen
-repo_url="git@github.com:tombo0909/data.git" 
+repo_url="git@github.com:tombo09/data.git" 
 
 echo -ne "\e[1;34m>>\e[0m Möchtest du das Repository aktualisieren? (Y/n): "
 read antwort
