@@ -445,7 +445,7 @@ IdleActionSec=5s
        jetbrains.idea-ultimate
        gnupg
        spotify
-       anki-bin
+       anki
      ];
   };
 };
