@@ -396,35 +396,6 @@ IdleActionSec=5s
 
 
 
-
-
-
-
-  security.pam.services.login.rules.auth = {
-    faillock_preauth = {
-      order = 100;
-      control = "required";
-      modulePath = "pam_faillock.so";
-      settings = {
-        preauth = true;
-        silent = true;
-        deny = "5";
-        unlock_time = "600"; # Sperre für 10 Minuten
-      };
-    };
-    faillock_authfail = {
-      order = 200;
-      control = "required";
-      modulePath = "pam_faillock.so";
-      settings = {
-        authfail = true;
-        deny = "5";
-        unlock_time = "600"; # Sperre für 10 Minuten
-      };
-    };
- };
-
-
  
   # Define a user account. Don't forget to set a password with ‘passwd’.
   users = {
@@ -2158,7 +2129,7 @@ fi
 read -p "Möchten Sie einen Fingerabdruck einrichten? (J/n): " -r
 echo
 if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-    sudo fprintd-enroll
+    sudo fprintd-enroll tom
 fi
 
 #-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
