@@ -396,6 +396,50 @@ IdleActionSec=5s
 
 
 
+
+ #Fingerprint
+  services.fprintd.enable = true;
+
+  security.pam.services = {
+    lightdm.fprintAuth = true;
+    sudo.fprintAuth = true;
+    i3lock.fprintAuth = true;
+  };
+
+  # Fingerprint
+  # LightDM: fprintd VOR unix, aber kurzer Timeout und nur 1 Versuch
+  security.pam.services.lightdm.rules.auth.fprintd = {
+    # kleiner als unix.order ⇒ läuft davor
+    order = config.security.pam.services.lightdm.rules.auth.unix.order - 50;
+    settings = {
+      timeout = 2;        # Sekunden, Default 30
+      "max-tries" = 1;     # Schlüssel mit Bindestrich muss in Anführungszeichen
+    };
+  };
+
+ #Fingerprint
+  # i3lock gleich behandeln (optional)
+  security.pam.services.i3lock.rules.auth.fprintd = {
+    order = config.security.pam.services.i3lock.rules.auth.unix.order - 50;
+    settings = { timeout = 2; "max-tries" = 1; };
+  };
+
+
+#Fingerprint
+powerManagement.resumeCommands = ''
+  for d in /sys/bus/usb/devices/*; do
+    [ -f "$d/idVendor" ] && [ -f "$d/idProduct" ] || continue
+    if [ "$(cat "$d/idVendor")" = "06cb" ] && [ "$(cat "$d/idProduct")" = "00f9" ]; then
+      echo on > "$d/power/control" 2>/dev/null || true
+      b=$(basename "$d")
+      echo "$b" > /sys/bus/usb/drivers/usb/unbind 2>/dev/null || true
+      echo "$b" > /sys/bus/usb/drivers/usb/bind   2>/dev/null || true
+    fi
+  done
+  systemctl restart fprintd.service
+'';
+
+
  
   # Define a user account. Don't forget to set a password with ‘passwd’.
   users = {
@@ -535,15 +579,12 @@ monitorHook = pkgs.writeShellApplication {
     ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_UUID}=="fa2a1b43-fe24-4213-819f-a3e72d8020b3", RUN+="${pkgs.sudo}/bin/sudo -u root ${unlockAndMount}/bin/unlockAndMount"
     ACTION=="change", SUBSYSTEM=="drm", KERNEL=="card1",  RUN+="${pkgs.sudo}/bin/sudo -u tom ${monitorHook}/bin/monitorHook"
     ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device",ATTRS{idVendor}=="18d1", ATTRS{serial}=="3C181JEKB05184", RUN+="${pkgs.sudo}/bin/sudo -u tom ${phoneHook}/bin/phoneHook"
+    ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="06cb", ATTR{idProduct}=="00f9", TEST=="power/control", ATTR{power/control}="on"
  '';
 
 
 
-#  services.fprintd.enable = true;
 
-#  services.fprintd.tod.enable = true;
-
-#  services.fprintd.tod.driver = pkgs.libfprint-2-tod1-goodix;
 
 
 environment.etc."vpn.nordvpn.com.udp.ovpn".text = ''
