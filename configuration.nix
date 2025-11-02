@@ -114,6 +114,10 @@ in
   };
 */
 
+
+  boot.loader.grub.configurationLimit = 7;           # für GRUB
+  boot.loader.systemd-boot.configurationLimit = 7;   # für systemd-boot
+
   # Use the systemd-boot EFI boot loader.
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
@@ -272,17 +276,6 @@ ${pkgs.coreutils}/bin/chmod 644 /home/tom/setup/configuration.nix
 
 
   services.xserver.displayManager.sessionCommands = ''
-#    ${pkgs.xorg.xmodmap}/bin/xmodmap "${pkgs.writeText  "xkb-layout" ''
-     
-#   ! Map umlauts to RIGHT ALT + <key>
-#        keycode 108 = Mode_switch
-#        keysym e = e E EuroSign
-#        keysym c = c C cent
-#        keysym a = a A adiaeresis Adiaeresis
-#        keysym o = o O odiaeresis Odiaeresis
-#        keysym u = u U udiaeresis Udiaeresis
-#        keysym s = s S ssharp
-#      ''}"
 
    # DPMS and Screensaver settings
      xset +dpms
