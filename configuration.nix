@@ -39,6 +39,7 @@ let
     BR=${pkgs.brightnessctl}/bin/brightnessctl
     BL=${pkgs.betterlockscreen}/bin/betterlockscreen
     XH=${pkgs.xidlehook}/bin/xidlehook
+    SDCTL=${pkgs.systemd}/bin/systemctl
 
     # Log & State
     if printenv XDG_RUNTIME_DIR >/dev/null 2>&1 && [ -n "$XDG_RUNTIME_DIR" ]; then
@@ -52,19 +53,27 @@ let
     log() { printf '%s %s\n' "$(date +%F_%T)" "$*" >>"$LOG"; }
 
     save_once() {
-      [ -f "$STATE" ] || { "$BR" g > "$STATE" 2>>"$LOG"; log "saved raw=$(cat "$STATE")"; }
+      [ -f "$STATE" ] || {
+        "$BR" g > "$STATE" 2>>"$LOG"
+        log "saved raw=$(cat "$STATE")"
+      }
     }
+
     restore_if_saved() {
       if [ -f "$STATE" ]; then
         RAW="$(cat "$STATE" 2>/dev/null || true)"
-        [ -n "${RAW:-}" ] && { "$BR" set "$RAW" >>"$LOG" 2>&1 || true; log "restored raw=$RAW"; }
+        [ -n "${RAW:-}" ] && {
+          "$BR" set "$RAW" >>"$LOG" 2>&1 || true
+          log "restored raw=$RAW"
+        }
         rm -f "$STATE" || true
       else
         log "no state to restore"
       fi
     }
 
-    arg="run"; [ "$#" -ge 1 ] && arg="$1"
+    arg="run"
+    [ "$#" -ge 1 ] && arg="$1"
 
     case "$arg" in
       dim)
@@ -87,12 +96,11 @@ let
         log "start xidlehook"
         exec "$XH" --detect-sleep \
           --timer 360 "$0 dim" "$0 undim" \
-          --timer 420 "$0 lock" :
+          --timer 420 "$0 lock" : \
+          --timer 1800 "$SDCTL hibernate" :
         ;;
     esac
   '';
-
-
 in
   {
  imports =
@@ -169,19 +177,27 @@ in
 
 
 
+
+
 systemd.user.services.lock-idle = {
   description = "xidlehook + brightness restore";
   after = [ "graphical-session.target" ];
   partOf = [ "graphical-session.target" ];
-  wantedBy = [ "default.target" ];
+  wantedBy = [ "graphical-session.target" ];
+
   serviceConfig = {
     ExecStart = "${lock-idle}/bin/lock-idle";
     Restart = "always";
-    # Optional:
-    # RestartSec = 2;
+  };
 
+  environment = {
+    DISPLAY = ":0";
+    XAUTHORITY = "/home/tom/.Xauthority";
   };
 };
+
+
+
 
   nix.optimise.automatic = true;
   nix.optimise.dates = [ "12:00" ]; # Optional; allows customizing optimisation schedule
@@ -338,19 +354,21 @@ ${pkgs.coreutils}/bin/chmod 644 /home/tom/setup/configuration.nix
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
- 
-  services.logind = {
 
-	lidSwitch = "suspend-then-hibernate";
-	lidSwitchDocked = "suspend-then-hibernate";
-	lidSwitchExternalPower = "suspend-then-hibernate";
-        powerKey = "suspend-then-hibernate";
-	powerKeyLongPress = "hibernate";
-	extraConfig = ''
-IdleAction=suspend-then-hibernate
-IdleActionSec=5s
-        '';
-  };
+# before: IdleAction=suspend-then-hibernate
+#         IdleActionSec=5s
+services.logind = {
+  lidSwitch = "suspend-then-hibernate";
+  lidSwitchDocked = "suspend-then-hibernate";
+  lidSwitchExternalPower = "suspend-then-hibernate";
+  powerKey = "suspend-then-hibernate";
+  powerKeyLongPress = "hibernate";
+
+  extraConfig = ''
+    IdleAction=ignore
+    IdleActionSec=30min
+  '';
+};
 
   services.upower = {
     enable = true;
