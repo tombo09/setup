@@ -527,10 +527,13 @@ done
     };
 
 
+
 monitorHook = pkgs.writeShellApplication {
   name = "monitorHook";
-  runtimeInputs = with pkgs; [ kdePackages.kdialog coreutils systemd ];
+  runtimeInputs = with pkgs; [ coreutils systemd ];
   text = ''
+    set -eu
+
     uid=$(id -u tom)
     export DISPLAY=:0
     export XAUTHORITY=/home/tom/.Xauthority
@@ -539,29 +542,28 @@ monitorHook = pkgs.writeShellApplication {
     export PATH="/etc/profiles/per-user/tom/bin:/run/current-system/sw/bin:$PATH"
 
     st=/sys/class/drm/card1-DP-2/status
-    if [ -r "$st" ]; then
-      status=$(cat "$st")
-      if [ "$status" = "connected" ]; then
-        if kdialog --yesno "Externer Monitor (DP-2) erkannt. Layout anwenden?"; then
-          systemd-run --user --quiet --collect \
-            -E DISPLAY="$DISPLAY" \
-            -E XAUTHORITY="$XAUTHORITY" \
-            -E DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
-            -E PATH="$PATH" \
-            setup-monitor.sh monitor left-of extend
-        fi
-      elif [ "$status" = "disconnected" ]; then
-        systemd-run --user --quiet --collect \
-          -E DISPLAY="$DISPLAY" \
-          -E XAUTHORITY="$XAUTHORITY" \
-          -E DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
-          -E PATH="$PATH" \
-          setup-monitor.sh no-monitor
-      fi
-    fi
-  '';
+    [ -r "$st" ] || exit 0
 
+    status=$(cat "$st")
+    [ "$status" = "disconnected" ] || exit 0
+
+    # Optional: Debounce/Lock gegen Mehrfach-Trigger
+    lock="$XDG_RUNTIME_DIR/monitorHook.dp2.disconnected.lock"
+    if ! ( set -o noclobber; : > "$lock" ) 2>/dev/null; then
+      exit 0
+    fi
+    trap 'rm -f "$lock"' EXIT
+
+    systemd-run --user --quiet --collect \
+      -E DISPLAY="$DISPLAY" \
+      -E XAUTHORITY="$XAUTHORITY" \
+      -E DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
+      -E PATH="$PATH" \
+      setup-monitor.sh no-monitor
+  '';
 };
+
+
 
   phoneHook = pkgs.writeShellApplication {
     name = "phoneHook";
@@ -587,8 +589,8 @@ monitorHook = pkgs.writeShellApplication {
 
 
   in ''
-    ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_UUID}=="fa2a1b43-fe24-4213-819f-a3e72d8020b3", RUN+="${pkgs.sudo}/bin/sudo -u root ${unlockAndMount}/bin/unlockAndMount"
     ACTION=="change", SUBSYSTEM=="drm", KERNEL=="card1",  RUN+="${pkgs.sudo}/bin/sudo -u tom ${monitorHook}/bin/monitorHook"
+    ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_UUID}=="fa2a1b43-fe24-4213-819f-a3e72d8020b3", RUN+="${pkgs.sudo}/bin/sudo -u root ${unlockAndMount}/bin/unlockAndMount"
     ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device",ATTRS{idVendor}=="18d1", ATTRS{serial}=="3C181JEKB05184", RUN+="${pkgs.sudo}/bin/sudo -u tom ${phoneHook}/bin/phoneHook"
     ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="06cb", ATTR{idProduct}=="00f9", TEST=="power/control", ATTR{power/control}="on"
  '';
