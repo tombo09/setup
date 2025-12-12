@@ -726,7 +726,8 @@ alias revh='sudo systemctl restart NetworkManager && nmcli dev wifi rescan'
 alias ree='nmcli radio wifi on && nmcli dev wifi rescan'
 alias rem='nmcli radio wifi off && nmcli radio wifi on && nmcli dev wifi rescan'
 alias reh='nmcli networking off && nmcli networking on && nmcli dev wifi rescan'
-
+alias mirr-mon='RES=1920x1080; I=$(xrandr | awk '"'"'/ connected primary/{print $1;exit}'"'"'); [ -z "$I" ] && I=$(xrandr | awk '"'"'/ connected/ && $1~/^(eDP|LVDS)/{print $1;exit}'"'"'); [ -z "$I" ] && I=$(xrandr | awk '"'"'/ connected/{print $1;exit}'"'"'); xrandr --output "$I" --auto --primary; for O in $(xrandr | awk '"'"'/ connected/{print $1}'"'"'); do [ "$O" = "$I" ] && continue; xrandr --output "$O" --mode "$RES" --same-as "$I" 2>/dev/null || xrandr --output "$O" --auto --same-as "$I"; done'
+alias ext-mon='RES=1920x1080; I=$(xrandr | awk '"'"'/ connected primary/{print $1;exit}'"'"'); [ -z "$I" ] && I=$(xrandr | awk '"'"'/ connected/ && $1~/^(eDP|LVDS)/{print $1;exit}'"'"'); [ -z "$I" ] && I=$(xrandr | awk '"'"'/ connected/{print $1;exit}'"'"'); A=$I; xrandr --output "$I" --auto --primary; for O in $(xrandr | awk '"'"'/ connected/{print $1}'"'"'); do [ "$O" = "$I" ] && continue; xrandr --output "$O" --mode "$RES" --right-of "$A" 2>/dev/null || xrandr --output "$O" --auto --right-of "$A"; A=$O; done'
    '';
   };
 
