@@ -722,6 +722,7 @@ alias gita='git add .'
 alias gitc='git commit -m "c"'
 alias gitp='git push'
 alias gitf='git add . && git commit -m "c" && git push'
+alias recon='sudo systemctl restart NetworkManager'
    '';
   };
 
