@@ -722,7 +722,11 @@ alias gita='git add .'
 alias gitc='git commit -m "c"'
 alias gitp='git push'
 alias gitf='git add . && git commit -m "c" && git push'
-alias recon='sudo systemctl restart NetworkManager'
+alias revh='sudo systemctl restart NetworkManager && nmcli dev wifi rescan'
+alias ree='nmcli radio wifi on && nmcli dev wifi rescan'
+alias rem='nmcli radio wifi off && nmcli radio wifi on && nmcli dev wifi rescan'
+alias reh='nmcli networking off && nmcli networking on && nmcli dev wifi rescan'
+
    '';
   };
 
