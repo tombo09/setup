@@ -722,10 +722,10 @@ alias gita='git add .'
 alias gitc='git commit -m "c"'
 alias gitp='git push'
 alias gitf='git add . && git commit -m "c" && git push'
-alias revh='sudo systemctl restart NetworkManager && nmcli dev wifi rescan'
-alias ree='nmcli radio wifi on && nmcli dev wifi rescan'
-alias rem='nmcli radio wifi off && nmcli radio wifi on && nmcli dev wifi rescan'
-alias reh='nmcli networking off && nmcli networking on && nmcli dev wifi rescan'
+alias red='sudo systemctl restart NetworkManager && nmcli dev wifi rescan'
+alias rea='nmcli radio wifi on && nmcli dev wifi rescan'
+alias reb='nmcli radio wifi off && nmcli radio wifi on && nmcli dev wifi rescan'
+alias rec='nmcli networking off && nmcli networking on && nmcli dev wifi rescan'
 alias mirr-mon='RES=1920x1080; I=$(xrandr | awk '"'"'/ connected primary/{print $1;exit}'"'"'); [ -z "$I" ] && I=$(xrandr | awk '"'"'/ connected/ && $1~/^(eDP|LVDS)/{print $1;exit}'"'"'); [ -z "$I" ] && I=$(xrandr | awk '"'"'/ connected/{print $1;exit}'"'"'); xrandr --output "$I" --auto --primary; for O in $(xrandr | awk '"'"'/ connected/{print $1}'"'"'); do [ "$O" = "$I" ] && continue; xrandr --output "$O" --mode "$RES" --same-as "$I" 2>/dev/null || xrandr --output "$O" --auto --same-as "$I"; done'
 alias ext-mon='RES=1920x1080; I=$(xrandr | awk '"'"'/ connected primary/{print $1;exit}'"'"'); [ -z "$I" ] && I=$(xrandr | awk '"'"'/ connected/ && $1~/^(eDP|LVDS)/{print $1;exit}'"'"'); [ -z "$I" ] && I=$(xrandr | awk '"'"'/ connected/{print $1;exit}'"'"'); A=$I; xrandr --output "$I" --auto --primary; for O in $(xrandr | awk '"'"'/ connected/{print $1}'"'"'); do [ "$O" = "$I" ] && continue; xrandr --output "$O" --mode "$RES" --right-of "$A" 2>/dev/null || xrandr --output "$O" --auto --right-of "$A"; A=$O; done'
    '';
@@ -2159,7 +2159,6 @@ bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
      pamixer
      android-tools
      adb-sync
-
 
    (vscode-with-extensions.override {
     vscodeExtensions = with vscode-extensions; [
