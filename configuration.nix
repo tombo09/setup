@@ -30,7 +30,7 @@ in
   ];
 */
 
-let
+/*let
   lock-idle = pkgs.writeShellScriptBin "lock-idle" ''
     #!/usr/bin/env sh
     # kein set -e, damit wir Logs bekommen auch wenn ein Schritt fehlschlägt
@@ -102,6 +102,35 @@ let
     esac
   '';
 in
+*/
+
+
+let
+  idleNotify = pkgs.writeShellScriptBin "idle-notify" ''
+    set -euo pipefail
+
+    T1=400  # Sekunden bis zur Benachrichtigung
+    sent=0
+
+    while true; do
+      idle_ms="$(${pkgs.xprintidle}/bin/xprintidle)"
+      idle_s=$(( idle_ms / 1000 ))
+
+      if (( idle_s >= T1 )); then
+        if (( sent == 0 )); then
+          ${pkgs.libnotify}/bin/notify-send "Inaktivität" "Screen-lock in 20 Sekunden"
+          sent=1
+        fi
+      else
+        sent=0
+      fi
+
+      sleep 0.2
+    done
+  '';
+in
+
+
   {
  imports =
     [ # Include the results of the hardware scan.
@@ -178,7 +207,7 @@ in
 
 
 
-
+/*
 systemd.user.services.lock-idle = {
   description = "xidlehook + brightness restore";
   after = [ "graphical-session.target" ];
@@ -195,7 +224,23 @@ systemd.user.services.lock-idle = {
     XAUTHORITY = "/home/tom/.Xauthority";
   };
 };
+*/
 
+
+
+  systemd.user.services.idle-notify = {
+    description = "Notify after 10s X11 idle";
+    after = [ "graphical-session.target" ];
+    partOf = [ "graphical-session.target" ];
+
+    serviceConfig = {
+      ExecStart = "${idleNotify}/bin/idle-notify";
+      Restart = "always";
+      RestartSec = 1;
+    };
+
+    wantedBy = [ "graphical-session.target" ];
+  };
 
 
 
@@ -365,7 +410,7 @@ services.logind = {
   powerKeyLongPress = "hibernate";
 
   extraConfig = ''
-    IdleAction=ignore
+    IdleAction=suspend-then-hibernate
     IdleActionSec=30min
   '';
 };
@@ -591,7 +636,6 @@ monitorHook = pkgs.writeShellApplication {
 
 
   in ''
-    ACTION=="change", SUBSYSTEM=="drm", KERNEL=="card1",  RUN+="${pkgs.sudo}/bin/sudo -u tom ${monitorHook}/bin/monitorHook"
     ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_UUID}=="fa2a1b43-fe24-4213-819f-a3e72d8020b3", RUN+="${pkgs.sudo}/bin/sudo -u root ${unlockAndMount}/bin/unlockAndMount"
     ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device",ATTRS{idVendor}=="18d1", ATTRS{serial}=="3C181JEKB05184", RUN+="${pkgs.sudo}/bin/sudo -u tom ${phoneHook}/bin/phoneHook"
     ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="06cb", ATTR{idProduct}=="00f9", TEST=="power/control", ATTR{power/control}="on"
@@ -1905,8 +1949,7 @@ mode "resize" {
 bindsym $mod+r mode "resize"
 
 
-
-
+exec_always --no-startup-id xautolock -time 7 -locker "betterlockscreen -l" -corners -00- -detectsleep
 
 #bindsym $mod+b exec --no-startup-id dmenu_run
 #exec xautolock -time 3 -locker "betterlockscreen -l"
@@ -2155,10 +2198,12 @@ bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
      openvpn
     # agenix
      kdePackages.kdialog
-     lock-idle
+   #  lock-idle
      pamixer
      android-tools
      adb-sync
+     xprintidle
+     idleNotify
 
    (vscode-with-extensions.override {
     vscodeExtensions = with vscode-extensions; [
@@ -3971,6 +4016,7 @@ else
   echo "🔓"
 fi
 '')
+
 
 
 /*(let
