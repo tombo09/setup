@@ -118,7 +118,7 @@ let
 
       if (( idle_s >= T1 )); then
         if (( sent == 0 )); then
-          ${pkgs.libnotify}/bin/notify-send "Inaktivität" "Screen-lock in 20 Sekunden"
+          ${pkgs.libnotify}/bin/notify-send -t 20000 "Inaktivität" "Screen-lock in 20 Sekunden"
           sent=1
         fi
       else
@@ -171,6 +171,32 @@ in
   boot.kernelParams = [ "ipv6.disable=1" ];  # zusätzlich, greift nach Reboot
 
 
+services.postgresql = {
+  enable = true;
+  package = pkgs.postgresql_15;
+  enableTCPIP = true;
+
+  settings = {
+    port = 5433;
+  };
+
+  ensureDatabases = [ "mydb" ];
+
+  ensureUsers = [
+    {
+      name = "myuser";
+    }
+  ];
+
+  authentication = pkgs.lib.mkOverride 10 ''
+    local   all   all                                     trust
+    host    all   all             127.0.0.1/32            trust
+    host    all   all             ::1/128                 trust
+  '';
+};
+
+
+
   #docker aktivieren
   virtualisation.docker.enable = true;
 
@@ -191,7 +217,7 @@ in
 #  nix.gc = {
 #    automatic = true;
 #    dates = "hourly";
-#    options = "--delete-older-than 60d";
+#    options = "--delete-older-than 30d";
 #  };
 
 
@@ -946,6 +972,8 @@ ibmI1qEQL8Xfetag4dYIY5Hji+e7XO8XxE2JE6B+m4oIe0YOljc=
 
 
 
+
+
   services.polybar = {
 enable = true;
     package = pkgs.polybar.override {
@@ -1471,16 +1499,18 @@ menu-1-9-exec = VirtualBox &
 
 menu-4-0 = settings
 menu-4-0-exec = arandr &
-menu-4-1 = monitor (l) ext
-menu-4-1-exec = setup-monitor.sh monitor left-of extend &
-menu-4-2 = monitor (l) mir
-menu-4-2-exec = setup-monitor.sh monitor left-of mirror &
-menu-4-3 = monitor (r) ext
-menu-4-3-exec = setup-monitor.sh monitor right-of extend &
-menu-4-4 = monitor (r) mir
-menu-4-4-exec = setup-monitor.sh monitor right-of mirror &
-menu-4-5 = no monitor
-menu-4-5-exec = setup-monitor.sh no-monitor &
+menu-4-1 = only monitor
+menu-4-1-exec = bash -c 'PIDFILE=/tmp/lid-inhibit.pid; if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then kill "$(cat "$PIDFILE")" && rm -f "$PIDFILE"; else systemd-inhibit --what=handle-lid-switch --why="Deckel vorübergehend ignorieren" bash -c "while true; do sleep 1000; done" >/dev/null 2>&1 & echo $! > "$PIDFILE"; fi'
+menu-4-2 = monitor (l) ext
+menu-4-2-exec = setup-monitor.sh monitor left-of extend &
+menu-4-3 = monitor (l) mir
+menu-4-3-exec = setup-monitor.sh monitor left-of mirror &
+menu-4-4 = monitor (r) ext
+menu-4-4-exec = setup-monitor.sh monitor right-of extend &
+menu-4-5 = monitor (r) mir
+menu-4-5-exec = setup-monitor.sh monitor right-of mirror &
+menu-4-6 = no monitor
+menu-4-6-exec = setup-monitor.sh no-monitor &
 
 menu-5-0 = file full 
 menu-5-0-exec = sh -c 'LC_TIME=de_DE.UTF-8 maim "/home/$USER/Pictures/screenshots/screenshot_$(date +'%d-%m-%Y_%Hh-%Mm-%Ss').png"'
@@ -2204,6 +2234,8 @@ bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
      adb-sync
      xprintidle
      idleNotify
+     signal-desktop
+     lsof
 
    (vscode-with-extensions.override {
     vscodeExtensions = with vscode-extensions; [
@@ -2542,7 +2574,7 @@ fi
 
 echo "System wird aktualisiert..."
 
-sudo nix-channel --add https://github.com/nix-community/home-manager/archive/release-24.05.tar.gz home-manager
+
 sudo nix-channel --update
 sudo nixos-rebuild switch
 
