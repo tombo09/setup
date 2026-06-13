@@ -104,6 +104,11 @@ in
 in
 */
 
+let
+  unstable = import <nixpkgs-unstable> {
+    config.allowUnfree = true;
+  };
+in
 
 let
   idleNotify = pkgs.writeShellScriptBin "idle-notify" ''
@@ -164,8 +169,8 @@ in
   #  networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
   networking.networkmanager.enable = true;  # Easiest to use and most distros use this by default.
   networking.firewall.allowedUDPPorts = [ 1194 ]; # OpenVPN Standardport
-  networking.wireless.iwd.enable = true;
-  networking.networkmanager.wifi.backend = "iwd";
+  #networking.wireless.iwd.enable = true;
+  #networking.networkmanager.wifi.backend = "iwd";
 
   networking.enableIPv6 = false;
   boot.kernelParams = [ "ipv6.disable=1" ];  # zusätzlich, greift nach Reboot
@@ -252,6 +257,11 @@ systemd.user.services.lock-idle = {
 };
 */
 
+
+  services.mullvad-vpn.enable = true;
+  services.mullvad-vpn.package = pkgs.mullvad-vpn;
+
+  services.resolved.enable = true;
 
 
   systemd.user.services.idle-notify = {
@@ -1079,8 +1089,9 @@ enable-ipc = true
 ; override-redirect = true
 
 
-;
-;
+
+
+
 
 [module/vpn]
 type = custom/script
@@ -1482,18 +1493,20 @@ menu-1-2 = 
 menu-1-2-exec = firefox &
 menu-1-3 = Obsidian
 menu-1-3-exec = obsidian &
-menu-1-4 = Yubikey-Auth
-menu-1-4-exec = yubioath-flutter &
-menu-1-5 = keepassxc
-menu-1-5-exec = keepassxc &
-menu-1-6 = Anki
-menu-1-6-exec = anki-bin &
-menu-1-7 = Vscode
-menu-1-7-exec = code &
-menu-1-8 = Intellij
-menu-1-8-exec = idea-ultimate &
-menu-1-9 = VirtualBox
-menu-1-9-exec = VirtualBox &
+menu-1-4 = Signal
+menu-1-4-exec = signal-desktop &
+menu-1-5 = Yubikey-Auth
+menu-1-5-exec = yubioath-flutter &
+menu-1-6 = keepassxc
+menu-1-6-exec = keepassxc &
+menu-1-7 = Anki
+menu-1-7-exec = anki-bin &
+menu-1-8 = Vscode
+menu-1-8-exec = code &
+menu-1-9 = Intellij
+menu-1-9-exec = idea-ultimate &
+menu-1-10 = VirtualBox
+menu-1-10-exec = VirtualBox &
 
 
 
@@ -2045,7 +2058,7 @@ bindsym $mod+Shift+bracketright move workspace to output right
 
 
 # dmenu nur mit spezifischen Eintragen
-bindsym $mod+d exec --no-startup-id sh -c 'echo -e "firefox\\nobsidian\\nspotify\\nkitty\\nyubioath-flutter\\nkeepassxc\\nanki\\ncode\\nidea-ultimate\\nVirtualBox\\nnmtui\\nnetworkmanager_dmenu\\nblueman-manager\\npavucontrol\\narandr" | dmenu -i -p "Run: " | xargs -r -I {} sh -c "{} &"'
+bindsym $mod+d exec --no-startup-id sh -c 'echo -e "firefox\\nobsidian\\nspotify\\nkitty\\nyubioath-flutter\\nkeepassxc\\nanki\\ncode\\nsignal-desktop\\nidea-ultimate\\nVirtualBox\\nnmtui\\nnetworkmanager_dmenu\\nblueman-manager\\npavucontrol\\narandr" | dmenu -i -p "Run: " | xargs -r -I {} sh -c "{} &"'
 
 
 # shortcuts fur Anwendungen
@@ -2234,7 +2247,7 @@ bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
      adb-sync
      xprintidle
      idleNotify
-     signal-desktop
+     unstable.signal-desktop
      lsof
 
    (vscode-with-extensions.override {
