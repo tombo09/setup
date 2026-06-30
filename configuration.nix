@@ -430,7 +430,7 @@ ${pkgs.coreutils}/bin/chmod 644 /home/tom/setup/configuration.nix
     };
  
 
-  services.usbmuxd.enable = true; # for mounting iphone  
+  #services.usbmuxd.enable = true; # for mounting iphone  
 
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
