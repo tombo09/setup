@@ -403,13 +403,21 @@ ${pkgs.coreutils}/bin/chmod 644 /home/tom/setup/configuration.nix
   # services.printing.enable = true;
 
   # Enable sound.
-  services.pulseaudio.enable = true;
-  nixpkgs.config.pulseaudio = true;
+  services.pulseaudio.enable = false;
+#  nixpkgs.config.pulseaudio = true;
   # OR
-   services.pipewire = {
-    enable = false;
-  #   pulse.enable = true;
-   };
+
+
+security.rtkit.enable = true;
+
+services.pipewire = {
+  enable = true;
+
+  pulse.enable = true;
+
+  alsa.enable = true;
+  alsa.support32Bit = true;
+};
  
 
   hardware.bluetooth.enable = true; # enables support for Bluetooth
@@ -2108,6 +2116,12 @@ bindsym Print exec --no-startup-id maim --select | xclip -selection clipboard -t
 
 
 bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
+
+
+bindsym XF86AudioPlay exec --no-startup-id playerctl play-pause
+bindsym XF86AudioPause exec --no-startup-id playerctl pause
+bindsym XF86AudioNext exec --no-startup-id playerctl next
+bindsym XF86AudioPrev exec --no-startup-id playerctl previous
 '';
   };
    # The state version is required and should stay at the version you
@@ -2249,6 +2263,7 @@ bindsym $mod+Shift+u exec --no-startup-id eject-extdisc.sh &
      idleNotify
      unstable.signal-desktop
      lsof
+     pulseaudio
 
    (vscode-with-extensions.override {
     vscodeExtensions = with vscode-extensions; [
@@ -2551,36 +2566,7 @@ else
     echo "Hibernation wurde nicht eingerichtet."
 fi
 
-#-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-
-echo "Kernel-Parameter werden eingerichtet..."
-
-config_file="/etc/nixos/hardware-configuration.nix"
-
-# Wichtig für Audio auf manchen Geräten
-# Überprüfen, ob ein Intel-Chip vorhanden ist
-if lspci | grep -q 'Intel'; then
-    echo "Intel-Chip erkannt."
-
-    # Überprüfen, ob der Kernel-Parameter bereits vorhanden ist
-    if ! grep -q 'snd-intel-dspcfg.dsp_driver=1' "$config_file"; then
-        echo "Kernel-Parameter nicht vorhanden. Füge ihn hinzu."
-
-        # Füge den Kernel-Parameter hinzu, wenn er noch nicht existiert
-        # Überprüfe, ob 'boot.kernelParams' existiert, bevor der Parameter hinzugefügt wird
-        if grep -q 'boot.kernelParams = \[' "$config_file"; then
-            sudo sed -i '/boot.kernelParams = \[/a\    "snd-intel-dspcfg.dsp_driver=1"' "$config_file"
-            echo "Kernel-Parameter wurde hinzugefügt."
-        else
-            echo "Warnung: 'boot.kernelParams' nicht in der Datei gefunden. Parameter konnte nicht hinzugefügt werden."
-        fi
-    else
-        echo "Kernel-Parameter bereits vorhanden. Keine Änderung vorgenommen."
-    fi
-else
-    echo "Kein Intel-Chip erkannt. Keine Änderungen vorgenommen."
-fi
 
 
 #------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
