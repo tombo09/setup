@@ -568,6 +568,7 @@ powerManagement.resumeCommands = ''
 
   fonts.packages = with pkgs; [
     font-awesome
+    nerd-fonts.jetbrains-mono
   ];
     
  
@@ -1080,11 +1081,11 @@ font-1 = "Font Awesome 5 Brands:style=Regular:pixelsize=14;1"
 font-2 = "Font Awesome 6 Free:style=Regular:pixelsize=14;1"
 font-3 = "Font Awesome 6 Free Solid:style=Solid:pixelsize=14;1"
 font-4 = "Font Awesome 6 Brands:style=Regular:pixelsize=14;1"
-
+font-5 = "JetBrainsMono Nerd Font:pixelsize=14;1"
 
 modules-left = xworkspaces menu-apps
 modules-center = date
-modules-right = scalp vpn pulseaudio network memory battery
+modules-right = headphones scalp pulseaudio network memory battery
 cursor-click = pointer
 cursor-scroll = ns-resize
 
@@ -1097,8 +1098,11 @@ enable-ipc = true
 ; override-redirect = true
 
 
-
-
+[module/headphones]
+type = custom/script
+interval = 2
+exec = sh -c 'bluetoothctl info 58:18:62:3F:B5:5F | grep -q "Connected: yes" && printf "%%{T6}%%{T-}" || printf "%%{T6}󰟎%%{T-}"'
+click-left = sh -c 'MAC="58:18:62:3F:B5:5F"; systemctl is-active --quiet bluetooth || systemctl start bluetooth; rfkill unblock bluetooth; for i in 1 2 3 4 5; do bluetoothctl show >/dev/null 2>&1 && break; sleep 1; done; bluetoothctl show >/dev/null 2>&1 || exit 1; bluetoothctl show | grep -q "Powered: yes" || bluetoothctl power on; bluetoothctl info "$MAC" | grep -q "Connected: yes" && bluetoothctl disconnect "$MAC" || bluetoothctl connect "$MAC"'
 
 
 [module/vpn]
@@ -1113,11 +1117,11 @@ label = %output%
 
 [module/scalp]
 type = custom/script
-exec = /home/tom/.config/polybar-position-exe.sh
-interval = 1 
+exec = sh -c '[ -e /tmp/polybar_position_enabled ] && /home/tom/.config/polybar-position-exe.sh || echo off'
+interval = 1
 label = %output%
-click-left = bash -c 'kitty sh -ic "sudo sh -c \\"if [ -f /tmp/option1_status ]; then rm /tmp/option1_status; else echo on > /tmp/option1_status; fi\\" "'
-click-right = echo -e "Ctrl + Alt + b\\tLong limit_loop\\nCtrl + Alt + s\\tShort limit_loop\\nAlt + Shift + b\\tLong market\\nAlt + Shift + s\\tShort market\\nAlt + Shift + Ctrl + s\\tClose Short All market\\nAlt + Shift + Ctrl + b\\tClose Long All market\\nShift + Ctrl + Tab + s\\tClose Short 0.005 market\\nCtrl + Shift + Tab + b\\tClose Long 0.005 market\\nCtrl + Tab + s\\tClose Short All limit_loop\\nCtrl + Tab + b\\tClose Long All limit_loop" | rofi -dmenu -p "Shortcuts"
+click-left = sh -c 'f=/tmp/polybar_position_enabled; [ -e "$f" ] && rm -f "$f" || touch "$f"'
+
 ;
 ;
 
@@ -2383,11 +2387,7 @@ if [ ! -L /home/tom/.config/polybar-position.py ]; then
     echo "polybar-position.py Symlink wurde erfolgreich gesetzt."
 fi
 
-# shortcut-execute.sh
-if [ ! -L /home/tom/.config/shortcut-execute.sh ]; then
-    ln -s /home/tom/data/scalp/shortcut-execute.sh /home/tom/.config/shortcut-execute.sh
-    echo "shortcut-execute.sh Symlink wurde erfolgreich gesetzt."
-fi
+
 
 # polybar-positon-exe.sh
 if [ ! -L /home/tom/.config/polybar-position-exe.sh ]; then
