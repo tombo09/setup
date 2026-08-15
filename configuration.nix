@@ -1085,7 +1085,7 @@ font-5 = "JetBrainsMono Nerd Font:pixelsize=14;1"
 
 modules-left = xworkspaces menu-apps
 modules-center = date
-modules-right = headphones scalp pulseaudio network memory battery
+modules-right = headphones quick pulseaudio network memory battery
 cursor-click = pointer
 cursor-scroll = ns-resize
 
@@ -1115,7 +1115,7 @@ format = <label>
 label = %output%
 
 
-[module/scalp]
+[module/quick]
 type = custom/script
 exec = sh -c '[ -e /tmp/polybar_position_enabled ] && /home/tom/.config/polybar-position-exe.sh || echo off'
 interval = 1
@@ -2383,7 +2383,7 @@ fi
 
 # polybar-position.py
 if [ ! -L /home/tom/.config/polybar-position.py ]; then
-    ln -s /home/tom/data/scalp/polybar-position.py /home/tom/.config/polybar-position.py
+    ln -s /home/tom/data/quick/polybar-position.py /home/tom/.config/polybar-position.py
     echo "polybar-position.py Symlink wurde erfolgreich gesetzt."
 fi
 
@@ -2391,7 +2391,7 @@ fi
 
 # polybar-positon-exe.sh
 if [ ! -L /home/tom/.config/polybar-position-exe.sh ]; then
-    ln -s /home/tom/data/scalp/polybar-position-exe.sh /home/tom/.config/polybar-position-exe.sh
+    ln -s /home/tom/data/quick/polybar-position-exe.sh /home/tom/.config/polybar-position-exe.sh
     echo "shortcut-execute.sh Symlink wurde erfolgreich gesetzt."
 fi
 
@@ -4050,208 +4050,6 @@ fi
 
 
 
-/*(let
-
-  pkgs = import <nixpkgs> {};
-
-  myPython = pkgs.python3.withPackages (ps: with ps; [
-    requests
-  ]);
-  pythonScript = pkgs.writeTextFile {
-    name = "polybar-position.py";
-    text = ''
-import os
-import subprocess
-import time
-import json
-import hmac
-import hashlib
-import base64
-import requests
-
-
-# ——— Pfade für xbindkeys & Statusfiles ———
-bindxkeys_path   = "/home/tom/.xbindkeysrc"
-option_file      = "/tmp/option1_status"
-state_file       = "/tmp/position_state.json"
-
-with open("/run/agenix/stripe-api-key", "r") as f:
-    API_KEY = f.read().strip()
-
-API_SECRET= ''
-API_PASSPHRASE = ' '
-
-# ——— Endpunkte ———
-BASE_URL          = "https://api.bitget.com"
-ALL_POS_ENDPOINT  = "/api/v2/mix/position/all-position"
-HIST_POS_ENDPOINT = "/api/v2/mix/position/history-position"
-
-def sign_request(method: str, endpoint: str, query: str = "", body: str = "") -> dict:
-    ts      = str(int(time.time() * 1000))
-    message = ts + method + endpoint + query + body
-    sig     = base64.b64encode(
-        hmac.new(API_SECRET.encode(), message.encode(), hashlib.sha256).digest()
-    ).decode()
-    return {
-        "ACCESS-KEY":        API_KEY,
-        "ACCESS-SIGN":       sig,
-        "ACCESS-TIMESTAMP":  ts,
-        "ACCESS-PASSPHRASE": API_PASSPHRASE,
-        "Content-Type":      "application/json",
-    }
-
-def fetch_current_positions():
-    query = "?productType=USDT-FUTURES&marginCoin=USDT"
-    headers = sign_request("GET", ALL_POS_ENDPOINT, query)
-    data = requests.get(BASE_URL + ALL_POS_ENDPOINT + query, headers=headers).json().get("data", [])
-    out = []
-    for pos in data:
-        init = float(pos.get("marginSize", 0))
-        pnl  = float(pos.get("unrealizedPL", 0))
-        pct  = float(pos.get("percentage", 0))
-        side = pos.get("holdSide", "").upper()
-        entry= float(pos.get("openPriceAvg", 0))
-        if init > 0:
-            out.append({
-                "initialMargin": init,
-                "unrealizedPnl": pnl,
-                "percentage":    pct,
-                "side":          side,
-                "entryPrice":    entry,
-            })
-    return out
-
-def fetch_history_positions():
-    query = "?productType=USDT-FUTURES"
-    headers = sign_request("GET", HIST_POS_ENDPOINT, query)
-    data = requests.get(BASE_URL + HIST_POS_ENDPOINT + query, headers=headers).json()
-    return data.get("data", {}).get("list", [])
-
-def compute_last_net(prev_size: float):
-    history = fetch_history_positions()
-    if history:
-        first = history[0]
-        net  = float(first.get("netProfit", 0))
-        pct  = (net / prev_size * 100) if prev_size > 0 else 0.0
-        return net, pct
-    return 0.0, 0.0
-
-def create_xbindkeys_config():
-    with open(bindxkeys_path, "w") as f:
-        f.write("""
-"shortcut-execute.sh -a openLong -l 30 -g 2 -e limit_loop"
-  Control+Alt + b
-
-"shortcut-execute.sh -a openShort -l 30 -g 2 -e limit_loop"
-  Control+Alt + s
-
-"shortcut-execute.sh -a openLong -l 30 -g 2 -e market"
-  Alt+Shift + b
-
-"shortcut-execute.sh -a openShort -l 30 -g 2 -e market"
-  Alt+Shift + s
-
-"shortcut-execute.sh -a closeLong -g All -e market"
-  Control+Alt+Shift + b
-
-"shortcut-execute.sh -a closeShort -g All -e market"
-  Control+Alt+Shift + s
-
-"shortcut-execute.sh -a closeLong -g 2 -e market"
-  Control+Shift+Tab + b
-
-"shortcut-execute.sh -a closeShort -g 2 -e market"
-  Control+Shift+Tab + s 
-
-"shortcut-execute.sh -a closeLong -g All -e limit_loop"
-  Control+Tab + b
-
-"shortcut-execute.sh -a closeShort -g All -e limit_loop"
-  Control+Tab + s
-""")
-
-def start_xbindkeys():
-    if subprocess.run(["pgrep", "xbindkeys"], capture_output=True).returncode != 0:
-        subprocess.Popen(["xbindkeys"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-def stop_xbindkeys():
-    subprocess.run(["killall", "xbindkeys"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-def check_option_status():
-    return os.path.exists(option_file) and open(option_file).read().strip() == "on"
-
-def load_state():
-    if os.path.exists(state_file):
-        try:
-            return json.load(open(state_file))
-        except:
-            pass
-    return {"last_size":0.0,"last_pnl":0.0,"last_pct":0.0,"pnl_until":0.0}
-
-def save_state(s):
-    with open(state_file,"w") as f:
-        json.dump(s, f)
-
-def get_positions_data():
-    lst = fetch_current_positions()
-    total_size = sum(p["initialMargin"] for p in lst)
-    total_pnl  = sum(p["unrealizedPnl"]  for p in lst)
-    parts = []
-    for p in lst:
-        init = p["initialMargin"]
-        pnl  = p["unrealizedPnl"]
-        roe  = (pnl / init * 100) if init > 0 else 0.0
-        parts.append(
-            f"{p['side']} Entry:{p['entryPrice']:.1f} "
-            f"Marge:{init:.1f} Pnl:{pnl:.2f} Roe:{roe:.3f}%"
-        )
-    return total_size, total_pnl, " | ".join(parts)
-
-def get_polybar_output():
-    state = load_state()
-    now   = time.time()
-    prev_size, prev_pnl, prev_pct = state["last_size"], state["last_pnl"], state["last_pct"]
-    curr_size, curr_pnl, details   = get_positions_data()
-
-    if curr_size == 0.0 and prev_size > 0.0:
-        net, pct = compute_last_net(prev_size)
-        state["last_pnl"]  = net
-        state["last_pct"]  = pct
-        state["pnl_until"] = now + 4.0
-    else:
-        if now > state.get("pnl_until",0):
-            state["last_pnl"] = curr_pnl
-            state["last_pct"] = (curr_pnl/curr_size*100) if curr_size>0 else prev_pct
-
-    state["last_size"] = curr_size
-    save_state(state)
-
-    if now < state.get("pnl_until",0):
-        return f"Pnl:{state['last_pnl']:.2f} ({state['last_pct']:.3f}%)"
-
-    base = "on" if check_option_status() else "off"
-    return f"{base} | {details}" if details else base
-
-def main():
-    create_xbindkeys_config()
-    if check_option_status():
-        start_xbindkeys()
-    else:
-        stop_xbindkeys()
-    print(get_polybar_output())
-
-if __name__ == "__main__":
-    main()
-   '';
-  };
-in
-pkgs.writeShellScriptBin "polybar-position-exe.sh" ''
-#!/usr/bin/env bash
-${myPython}/bin/python ${pythonScript}
-
-''
-)
-*/
 
 (let
   pythonScript = pkgs.writeTextFile {
